@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { pool, createMessageTranslation, getChatParticipants } from '../config/database';
 import { MessageTranslation } from '../types';
 
@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // Try different model names - Latest Gemini models (2025)
 // Ordered from newest/fastest to older models
-let model;
+let model: GenerativeModel;
 const modelNamesToTry = [
   'gemini-2.5-flash',           // Latest Feb 2025 - fastest and best
   'gemini-2.5-flash-latest',    // Alternative name

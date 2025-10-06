@@ -4,7 +4,12 @@ import { MessageTranslation } from '../types';
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-pro' }); // Using gemini-pro (stable model)
+
+// For project-based API keys, use the full model path
+// Model must be enabled in Google Cloud Console for project: gen-lang-client-0921703180
+const model = genAI.getGenerativeModel({
+  model: 'gemini-pro' // Using stable gemini-pro model
+});
 
 export class TranslationService {
   /**

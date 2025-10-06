@@ -17,12 +17,13 @@ export class TranslationService {
     originalLanguage: string
   ): Promise<string> {
     try {
-      // Check if translation already exists
-      const existingTranslation = await this.getExistingTranslation(messageId, targetLanguage);
-      if (existingTranslation) {
-        console.log(`Using cached translation for message ${messageId} to ${targetLanguage}`);
-        return existingTranslation;
-      }
+      // Skip database caching for now (database not connected on Railway)
+      // TODO: Re-enable when PostgreSQL is configured
+      // const existingTranslation = await this.getExistingTranslation(messageId, targetLanguage);
+      // if (existingTranslation) {
+      //   console.log(`Using cached translation for message ${messageId} to ${targetLanguage}`);
+      //   return existingTranslation;
+      // }
 
       // Convert language codes to full names for better translation
       const langMap: { [key: string]: string } = {
@@ -58,8 +59,9 @@ Translation:`;
 
       console.log(`Translation result: "${translatedContent}"`);
 
-      // Store the translation
-      await this.storeTranslation(messageId, targetLanguage, translatedContent);
+      // Skip database storage for now (database not connected on Railway)
+      // TODO: Re-enable when PostgreSQL is configured
+      // await this.storeTranslation(messageId, targetLanguage, translatedContent);
 
       return translatedContent;
     } catch (error) {

@@ -33,8 +33,9 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Import routes
+// Import routes and services
 import authRoutes from './routes/auth';
+import { TranslationService } from './services/translation';
 
 // Basic route
 app.get('/', (req, res) => {
@@ -94,7 +95,7 @@ io.on('connection', (socket) => {
   });
 
 
-  socket.on('send-message', (data) => {
+  socket.on('send-message', async (data) => {
     console.log('=== SEND-MESSAGE EVENT TRIGGERED ===');
     console.log('=== MESSAGE RECEIVED ===');
     console.log('Socket ID:', socket.id);
@@ -102,35 +103,81 @@ io.on('connection', (socket) => {
     console.log('User ID from query:', socket.handshake.query.userId);
     console.log('Message data:', data);
     console.log('Chat ID:', data.chatId);
-    
+
     // Add more debugging
     console.log('=== SOCKET DEBUG INFO ===');
     console.log('Socket connected:', socket.connected);
     console.log('Socket rooms:', Array.from(socket.rooms));
-    console.log('Socket ID matches frontend:', socket.id === 'KiFLy2wgi9N2Ohd4AAAB');
-    
+
     const roomSize = io.sockets.adapter.rooms.get(data.chatId)?.size || 0;
     console.log('Users in room:', roomSize);
     console.log('All rooms:', Array.from(io.sockets.adapter.rooms.keys()));
-    
-    // Create message data
+
+    // Create message ID
+    const messageId = `${Date.now()}-${socket.id}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Get sender language from query or default to 'en'
+    const senderLanguage = (socket.handshake.query.userLanguage as string) || 'en';
+    console.log('Sender language:', senderLanguage);
+
+    // Create message data with original content
     const messageData = {
       ...data,
-      id: `${Date.now()}-${socket.id}-${Math.random().toString(36).substr(2, 9)}`,
+      id: messageId,
       createdAt: new Date().toISOString(),
       sender: {
         id: socket.handshake.query.userId || 'unknown',
         displayName: socket.handshake.query.userId || 'Unknown User'
-      }
+      },
+      originalLanguage: senderLanguage,
+      translations: {} as { [key: string]: string }
     };
-    
+
+    // Translate message to common languages (en, he)
+    console.log('=== TRANSLATING MESSAGE ===');
+    const targetLanguages = ['en', 'he', 'iw'];
+
+    try {
+      // Create translations for all target languages
+      const translationPromises = targetLanguages
+        .filter(lang => lang !== senderLanguage) // Don't translate to same language
+        .map(async (targetLang) => {
+          try {
+            const translated = await TranslationService.translateMessage(
+              messageId,
+              targetLang,
+              data.content,
+              senderLanguage
+            );
+            return { lang: targetLang, text: translated };
+          } catch (error) {
+            console.error(`Failed to translate to ${targetLang}:`, error);
+            return { lang: targetLang, text: data.content }; // Fallback to original
+          }
+        });
+
+      const translations = await Promise.all(translationPromises);
+
+      // Build translations object
+      messageData.translations[senderLanguage] = data.content; // Original
+      translations.forEach(({ lang, text }) => {
+        messageData.translations[lang] = text;
+      });
+
+      console.log('Translations created:', messageData.translations);
+    } catch (error) {
+      console.error('Translation error:', error);
+      // If translation fails, just use original content
+      messageData.translations[senderLanguage] = data.content;
+    }
+
     console.log('Broadcasting message to room:', messageData);
     console.log('Room to broadcast to:', data.chatId);
     console.log('Number of sockets in room:', io.sockets.adapter.rooms.get(data.chatId)?.size || 0);
-    
+
     io.to(data.chatId).emit('new-message', messageData);
     console.log('Message emitted to room');
-    
+
     // Also broadcast to all connected users for chat list updates
     console.log('Broadcasting to all users for chat list updates');
     io.emit('chat-message-received', messageData);
@@ -163,7 +210,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 3001;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

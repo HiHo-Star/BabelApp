@@ -5,13 +5,40 @@ import { MessageTranslation } from '../types';
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// For project-based API keys, use the full model path
-// Model must be enabled in Google Cloud Console for project: gen-lang-client-0921703180
-const model = genAI.getGenerativeModel({
-  model: 'gemini-pro' // Using stable gemini-pro model
+// Try different model names - Latest Gemini models (2025)
+// Ordered from newest/fastest to older models
+let model;
+const modelNamesToTry = [
+  'gemini-2.5-flash',           // Latest Feb 2025 - fastest and best
+  'gemini-2.5-flash-latest',    // Alternative name
+  'gemini-2.0-flash',           // Dec 2024 - very fast
+  'gemini-2.0-flash-exp',       // Experimental 2.0
+  'gemini-1.5-flash',           // Stable 1.5
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-pro',             // Pro version
+  'gemini-1.0-pro-002',         // Older stable
+  'gemini-1.0-pro'              // Fallback
+];
+
+// Use the first model name (we'll handle errors gracefully in the translate function)
+model = genAI.getGenerativeModel({
+  model: modelNamesToTry[0]
 });
 
 export class TranslationService {
+  /**
+   * List available models (for debugging)
+   */
+  static async listAvailableModels(): Promise<void> {
+    try {
+      console.log('=== Attempting to list available Gemini models ===');
+      // This is just for logging - the SDK doesn't expose a listModels method easily
+      console.log('Using model:', model.model);
+    } catch (error) {
+      console.error('Error listing models:', error);
+    }
+  }
+
   /**
    * Translate a message to a target language using Gemini AI
    */
@@ -21,33 +48,24 @@ export class TranslationService {
     originalContent: string,
     originalLanguage: string
   ): Promise<string> {
-    try {
-      // Skip database caching for now (database not connected on Railway)
-      // TODO: Re-enable when PostgreSQL is configured
-      // const existingTranslation = await this.getExistingTranslation(messageId, targetLanguage);
-      // if (existingTranslation) {
-      //   console.log(`Using cached translation for message ${messageId} to ${targetLanguage}`);
-      //   return existingTranslation;
-      // }
+    // Convert language codes to full names for better translation
+    const langMap: { [key: string]: string } = {
+      'en': 'English',
+      'he': 'Hebrew',
+      'iw': 'Hebrew',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'ar': 'Arabic',
+      'ru': 'Russian',
+      'zh': 'Chinese',
+    };
 
-      // Convert language codes to full names for better translation
-      const langMap: { [key: string]: string } = {
-        'en': 'English',
-        'he': 'Hebrew',
-        'iw': 'Hebrew',
-        'es': 'Spanish',
-        'fr': 'French',
-        'de': 'German',
-        'ar': 'Arabic',
-        'ru': 'Russian',
-        'zh': 'Chinese',
-      };
+    const targetLangName = langMap[targetLanguage] || targetLanguage;
+    const originalLangName = langMap[originalLanguage] || originalLanguage;
 
-      const targetLangName = langMap[targetLanguage] || targetLanguage;
-      const originalLangName = langMap[originalLanguage] || originalLanguage;
-
-      // Create translation prompt for Gemini
-      const prompt = `Translate the following message from ${originalLangName} to ${targetLangName}.
+    // Create translation prompt for Gemini
+    const prompt = `Translate the following message from ${originalLangName} to ${targetLangName}.
 Only return the translated text, nothing else. Keep the same tone and style.
 If there are names, keep them as is.
 
@@ -55,25 +73,40 @@ Message: "${originalContent}"
 
 Translation:`;
 
-      console.log(`Translating "${originalContent}" from ${originalLangName} to ${targetLangName} using Gemini...`);
+    console.log(`Translating "${originalContent}" from ${originalLangName} to ${targetLangName} using Gemini...`);
 
-      // Call Gemini API
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const translatedContent = response.text().trim();
+    // Try each model until one works
+    for (let i = 0; i < modelNamesToTry.length; i++) {
+      try {
+        const currentModel = genAI.getGenerativeModel({ model: modelNamesToTry[i] });
+        console.log(`Attempting translation with model: ${modelNamesToTry[i]}`);
 
-      console.log(`Translation result: "${translatedContent}"`);
+        const result = await currentModel.generateContent(prompt);
+        const response = await result.response;
+        const translatedContent = response.text().trim();
 
-      // Skip database storage for now (database not connected on Railway)
-      // TODO: Re-enable when PostgreSQL is configured
-      // await this.storeTranslation(messageId, targetLanguage, translatedContent);
+        console.log(`✅ Translation successful with model ${modelNamesToTry[i]}: "${translatedContent}"`);
 
-      return translatedContent;
-    } catch (error) {
-      console.error('Translation error:', error);
-      // Return original content if translation fails
-      return originalContent;
+        // Update the global model to the working one
+        model = currentModel;
+
+        return translatedContent;
+      } catch (error: any) {
+        console.error(`❌ Model ${modelNamesToTry[i]} failed:`, error.message);
+
+        // If this is the last model, return original
+        if (i === modelNamesToTry.length - 1) {
+          console.error('All models failed, returning original content');
+          return originalContent;
+        }
+
+        // Otherwise, try next model
+        console.log(`Trying next model...`);
+      }
     }
+
+    // Fallback (shouldn't reach here)
+    return originalContent;
   }
 
   /**

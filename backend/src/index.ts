@@ -35,7 +35,12 @@ app.use(express.urlencoded({ extended: true }));
 
 // Import routes and services
 import authRoutes from './routes/auth';
+import uploadRoutes from './routes/upload';
 import { TranslationService } from './services/translation';
+import path from 'path';
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Basic route
 app.get('/', (req, res) => {
@@ -44,6 +49,7 @@ app.get('/', (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -96,13 +102,14 @@ io.on('connection', (socket) => {
 
 
   socket.on('send-message', async (data) => {
-    console.log('=== SEND-MESSAGE EVENT TRIGGERED ===');
+    console.log('=== SEND-MESSAGE EVENT TRIGGERED (WITH TRANSLATION) ===');
     console.log('=== MESSAGE RECEIVED ===');
     console.log('Socket ID:', socket.id);
     console.log('Query params:', socket.handshake.query);
     console.log('User ID from query:', socket.handshake.query.userId);
     console.log('Message data:', data);
     console.log('Chat ID:', data.chatId);
+    console.log('🔥 TRANSLATION FEATURE ENABLED - Version: 2.5 🔥');
 
     // Add more debugging
     console.log('=== SOCKET DEBUG INFO ===');

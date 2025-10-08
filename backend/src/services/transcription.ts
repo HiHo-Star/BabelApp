@@ -1,7 +1,29 @@
-import speech from '@google-cloud/speech';
+import speech, { SpeechClient } from '@google-cloud/speech';
 import fs from 'fs';
 
-const client = new speech.SpeechClient();
+// Initialize Speech client with credentials from environment variable (for Railway)
+// or from default credentials file (for local development)
+let client: SpeechClient;
+
+try {
+  if (process.env.GOOGLE_CLOUD_CREDENTIALS_JSON) {
+    // Railway deployment: credentials from environment variable
+    const credentials = JSON.parse(process.env.GOOGLE_CLOUD_CREDENTIALS_JSON);
+    client = new speech.SpeechClient({ credentials });
+    console.log('✅ Google Cloud Speech-to-Text initialized from environment variable');
+  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    // Local development: credentials from file path
+    client = new speech.SpeechClient();
+    console.log('✅ Google Cloud Speech-to-Text initialized from credentials file');
+  } else {
+    // No credentials provided - will fail gracefully in upload endpoint
+    client = new speech.SpeechClient();
+    console.log('⚠️  No Google Cloud credentials configured - transcription will be disabled');
+  }
+} catch (error) {
+  console.error('❌ Error initializing Speech-to-Text client:', error);
+  client = new speech.SpeechClient();
+}
 
 export class TranscriptionService {
   /**
@@ -65,7 +87,7 @@ export class TranscriptionService {
 
       // Get the transcription from the first result
       const transcription = response.results
-        .map(result => result.alternatives?.[0]?.transcript || '')
+        .map((result: any) => result.alternatives?.[0]?.transcript || '')
         .join(' ')
         .trim();
 

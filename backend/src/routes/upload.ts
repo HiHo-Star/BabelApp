@@ -66,15 +66,22 @@ router.post('/audio', upload.single('audio'), async (req, res) => {
     const fileUrl = `/uploads/audio/${req.file.filename}`;
     const filePath = req.file.path;
 
-    // Transcribe the audio file
+    // Transcribe the audio file (optional - non-blocking)
     let transcription = '';
     try {
       console.log('Starting transcription for file:', filePath);
-      transcription = await TranscriptionService.transcribeAudio(filePath);
+      // Add a timeout to prevent hanging
+      const transcriptionPromise = TranscriptionService.transcribeAudio(filePath);
+      const timeoutPromise = new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('Transcription timeout')), 10000)
+      );
+
+      transcription = await Promise.race([transcriptionPromise, timeoutPromise]);
       console.log('Transcription result:', transcription);
-    } catch (transcriptionError) {
-      console.error('Error transcribing audio (non-blocking):', transcriptionError);
+    } catch (transcriptionError: any) {
+      console.error('Error transcribing audio (non-blocking):', transcriptionError?.message || transcriptionError);
       // Continue even if transcription fails - transcription will be empty
+      // This allows voice messages to work without Google Cloud credentials
     }
 
     return res.json({

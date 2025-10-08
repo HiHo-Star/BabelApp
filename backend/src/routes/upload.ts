@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { TranscriptionService } from '../services/transcription';
 
 const router = express.Router();
 
@@ -53,21 +54,36 @@ const upload = multer({
 });
 
 // Upload audio file endpoint
-router.post('/audio', upload.single('audio'), (req, res) => {
+router.post('/audio', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No audio file provided' });
     }
 
+    console.log('Audio file uploaded:', req.file.filename);
+
     // Return the URL/path where the file can be accessed
     const fileUrl = `/uploads/audio/${req.file.filename}`;
+    const filePath = req.file.path;
+
+    // Transcribe the audio file
+    let transcription = '';
+    try {
+      console.log('Starting transcription for file:', filePath);
+      transcription = await TranscriptionService.transcribeAudio(filePath);
+      console.log('Transcription result:', transcription);
+    } catch (transcriptionError) {
+      console.error('Error transcribing audio (non-blocking):', transcriptionError);
+      // Continue even if transcription fails - transcription will be empty
+    }
 
     return res.json({
       success: true,
       url: fileUrl,
       filename: req.file.filename,
       size: req.file.size,
-      mimeType: req.file.mimetype
+      mimeType: req.file.mimetype,
+      transcription: transcription
     });
   } catch (error) {
     console.error('Error uploading audio file:', error);

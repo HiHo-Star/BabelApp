@@ -128,7 +128,7 @@ io.on('connection', (socket) => {
     console.log('Sender language:', senderLanguage);
 
     // Create message data with original content
-    const messageData = {
+    const messageData: any = {
       ...data,
       id: messageId,
       createdAt: new Date().toISOString(),
@@ -144,6 +144,13 @@ io.on('connection', (socket) => {
     console.log('=== TRANSLATING MESSAGE ===');
     const targetLanguages = ['en', 'he', 'iw'];
 
+    // Determine what text to translate (use transcription for audio messages if available)
+    const textToTranslate = data.transcription && data.transcription.trim() !== ''
+      ? data.transcription
+      : data.content;
+
+    console.log('Text to translate:', textToTranslate);
+
     try {
       // Create translations for all target languages
       const translationPromises = targetLanguages
@@ -153,20 +160,20 @@ io.on('connection', (socket) => {
             const translated = await TranslationService.translateMessage(
               messageId,
               targetLang,
-              data.content,
+              textToTranslate,
               senderLanguage
             );
             return { lang: targetLang, text: translated };
           } catch (error) {
             console.error(`Failed to translate to ${targetLang}:`, error);
-            return { lang: targetLang, text: data.content }; // Fallback to original
+            return { lang: targetLang, text: textToTranslate }; // Fallback to original
           }
         });
 
       const translations = await Promise.all(translationPromises);
 
       // Build translations object
-      messageData.translations[senderLanguage] = data.content; // Original
+      messageData.translations[senderLanguage] = textToTranslate; // Original
       translations.forEach(({ lang, text }) => {
         messageData.translations[lang] = text;
       });
@@ -175,7 +182,7 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('Translation error:', error);
       // If translation fails, just use original content
-      messageData.translations[senderLanguage] = data.content;
+      messageData.translations[senderLanguage] = textToTranslate;
     }
 
     console.log('Broadcasting message to room:', messageData);

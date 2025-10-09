@@ -179,6 +179,41 @@ io.on('connection', (socket) => {
       });
 
       console.log('Translations created:', messageData.translations);
+
+      // Also translate caption if present (for image/video messages)
+      if (data.caption && data.caption.trim() !== '') {
+        console.log('=== TRANSLATING CAPTION ===');
+        console.log('Caption to translate:', data.caption);
+
+        messageData.captionTranslations = {} as { [key: string]: string };
+
+        const captionTranslationPromises = targetLanguages
+          .filter(lang => lang !== senderLanguage)
+          .map(async (targetLang) => {
+            try {
+              const translated = await TranslationService.translateMessage(
+                messageId + '-caption',
+                targetLang,
+                data.caption,
+                senderLanguage
+              );
+              return { lang: targetLang, text: translated };
+            } catch (error) {
+              console.error(`Failed to translate caption to ${targetLang}:`, error);
+              return { lang: targetLang, text: data.caption }; // Fallback to original
+            }
+          });
+
+        const captionTranslations = await Promise.all(captionTranslationPromises);
+
+        // Build caption translations object
+        messageData.captionTranslations[senderLanguage] = data.caption; // Original
+        captionTranslations.forEach(({ lang, text }) => {
+          messageData.captionTranslations[lang] = text;
+        });
+
+        console.log('Caption translations created:', messageData.captionTranslations);
+      }
     } catch (error) {
       console.error('Translation error:', error);
       // If translation fails, just use original content

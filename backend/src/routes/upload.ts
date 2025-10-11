@@ -111,6 +111,24 @@ router.post('/audio', audioUpload.single('audio'), async (req, res) => {
     console.log('Audio file uploaded:', req.file.filename);
     const filePath = req.file.path;
 
+    // Transcribe the audio file FIRST (before uploading to Cloudinary and deleting local file)
+    let transcription = '';
+    try {
+      console.log('Starting transcription for file:', filePath);
+      // Add a timeout to prevent hanging
+      const transcriptionPromise = TranscriptionService.transcribeAudio(filePath);
+      const timeoutPromise = new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('Transcription timeout')), 10000)
+      );
+
+      transcription = await Promise.race([transcriptionPromise, timeoutPromise]);
+      console.log('Transcription result:', transcription);
+    } catch (transcriptionError: any) {
+      console.error('Error transcribing audio (non-blocking):', transcriptionError?.message || transcriptionError);
+      // Continue even if transcription fails - transcription will be empty
+      // This allows voice messages to work without Google Cloud credentials
+    }
+
     // Upload to Cloudinary if configured, otherwise use local storage
     let fileUrl = `/uploads/audio/${req.file.filename}`;
 
@@ -129,24 +147,6 @@ router.post('/audio', audioUpload.single('audio'), async (req, res) => {
       }
     } else {
       console.log('Cloudinary not configured, using local storage');
-    }
-
-    // Transcribe the audio file (optional - non-blocking)
-    let transcription = '';
-    try {
-      console.log('Starting transcription for file:', filePath);
-      // Add a timeout to prevent hanging
-      const transcriptionPromise = TranscriptionService.transcribeAudio(filePath);
-      const timeoutPromise = new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('Transcription timeout')), 10000)
-      );
-
-      transcription = await Promise.race([transcriptionPromise, timeoutPromise]);
-      console.log('Transcription result:', transcription);
-    } catch (transcriptionError: any) {
-      console.error('Error transcribing audio (non-blocking):', transcriptionError?.message || transcriptionError);
-      // Continue even if transcription fails - transcription will be empty
-      // This allows voice messages to work without Google Cloud credentials
     }
 
     return res.json({

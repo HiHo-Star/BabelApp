@@ -142,9 +142,9 @@ io.on('connection', (socket) => {
       translations: {} as { [key: string]: string }
     };
 
-    // Translate message to common languages (en, he)
+    // Translate message to common languages (en, he, zh)
     console.log('=== TRANSLATING MESSAGE ===');
-    const targetLanguages = ['en', 'he', 'iw'];
+    const targetLanguages = ['en', 'he', 'iw', 'zh', 'zh-CN'];
 
     // Determine what text to translate (use transcription for audio messages if available)
     const textToTranslate = data.transcription && data.transcription.trim() !== ''

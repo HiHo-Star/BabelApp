@@ -26,31 +26,32 @@ try {
   client = new textToSpeech.TextToSpeechClient();
 }
 
-// Language code to Google TTS voice name mapping
+// Language code to Google TTS voice name mapping (Male voices by default)
 const LANGUAGE_VOICE_MAP: { [key: string]: { name: string; gender: string } } = {
   'en': { name: 'en-US-Standard-D', gender: 'MALE' },      // English
   'en-US': { name: 'en-US-Standard-D', gender: 'MALE' },
   'en-GB': { name: 'en-GB-Standard-B', gender: 'MALE' },
-  'he': { name: 'he-IL-Standard-A', gender: 'FEMALE' },    // Hebrew
-  'he-IL': { name: 'he-IL-Standard-A', gender: 'FEMALE' },
-  'es': { name: 'es-ES-Standard-A', gender: 'FEMALE' },    // Spanish
-  'es-ES': { name: 'es-ES-Standard-A', gender: 'FEMALE' },
-  'fr': { name: 'fr-FR-Standard-A', gender: 'FEMALE' },    // French
-  'fr-FR': { name: 'fr-FR-Standard-A', gender: 'FEMALE' },
-  'de': { name: 'de-DE-Standard-A', gender: 'FEMALE' },    // German
-  'de-DE': { name: 'de-DE-Standard-A', gender: 'FEMALE' },
-  'it': { name: 'it-IT-Standard-A', gender: 'FEMALE' },    // Italian
-  'it-IT': { name: 'it-IT-Standard-A', gender: 'FEMALE' },
-  'pt': { name: 'pt-BR-Standard-A', gender: 'FEMALE' },    // Portuguese
-  'pt-BR': { name: 'pt-BR-Standard-A', gender: 'FEMALE' },
-  'ru': { name: 'ru-RU-Standard-A', gender: 'FEMALE' },    // Russian
-  'ru-RU': { name: 'ru-RU-Standard-A', gender: 'FEMALE' },
-  'ar': { name: 'ar-XA-Standard-A', gender: 'FEMALE' },    // Arabic
-  'ar-SA': { name: 'ar-XA-Standard-A', gender: 'FEMALE' },
-  'zh': { name: 'cmn-CN-Standard-A', gender: 'FEMALE' },   // Chinese
-  'zh-CN': { name: 'cmn-CN-Standard-A', gender: 'FEMALE' },
-  'ja': { name: 'ja-JP-Standard-A', gender: 'FEMALE' },    // Japanese
-  'ja-JP': { name: 'ja-JP-Standard-A', gender: 'FEMALE' },
+  'he': { name: 'he-IL-Standard-B', gender: 'MALE' },      // Hebrew
+  'he-IL': { name: 'he-IL-Standard-B', gender: 'MALE' },
+  'iw': { name: 'he-IL-Standard-B', gender: 'MALE' },      // Hebrew (alternative code)
+  'es': { name: 'es-ES-Standard-B', gender: 'MALE' },      // Spanish
+  'es-ES': { name: 'es-ES-Standard-B', gender: 'MALE' },
+  'fr': { name: 'fr-FR-Standard-B', gender: 'MALE' },      // French
+  'fr-FR': { name: 'fr-FR-Standard-B', gender: 'MALE' },
+  'de': { name: 'de-DE-Standard-B', gender: 'MALE' },      // German
+  'de-DE': { name: 'de-DE-Standard-B', gender: 'MALE' },
+  'it': { name: 'it-IT-Standard-C', gender: 'MALE' },      // Italian
+  'it-IT': { name: 'it-IT-Standard-C', gender: 'MALE' },
+  'pt': { name: 'pt-BR-Standard-B', gender: 'MALE' },      // Portuguese
+  'pt-BR': { name: 'pt-BR-Standard-B', gender: 'MALE' },
+  'ru': { name: 'ru-RU-Standard-B', gender: 'MALE' },      // Russian
+  'ru-RU': { name: 'ru-RU-Standard-B', gender: 'MALE' },
+  'ar': { name: 'ar-XA-Standard-B', gender: 'MALE' },      // Arabic
+  'ar-SA': { name: 'ar-XA-Standard-B', gender: 'MALE' },
+  'zh': { name: 'cmn-CN-Standard-B', gender: 'MALE' },     // Chinese
+  'zh-CN': { name: 'cmn-CN-Standard-B', gender: 'MALE' },
+  'ja': { name: 'ja-JP-Standard-C', gender: 'MALE' },      // Japanese
+  'ja-JP': { name: 'ja-JP-Standard-C', gender: 'MALE' },
 };
 
 export class TextToSpeechService {

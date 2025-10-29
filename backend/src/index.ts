@@ -37,6 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 import authRoutes from './routes/auth';
 import uploadRoutes from './routes/upload';
 import ttsRoutes from './routes/tts';
+import databaseRoutes from './routes/database';
 import { TranslationService } from './services/translation';
 import path from 'path';
 
@@ -52,6 +53,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/tts', ttsRoutes);
+app.use('/api/database', databaseRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {

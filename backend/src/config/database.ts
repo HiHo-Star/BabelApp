@@ -2,16 +2,29 @@ import { Pool } from 'pg';
 import { Database } from '../types';
 
 // PostgreSQL connection configuration
-const pool = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'babelapp',
-  user: process.env.DB_USER || 'babelapp_user',
-  password: process.env.DB_PASSWORD || 'babelapp_password',
-  max: 20, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+// Supports both DATABASE_URL (Railway) and individual config vars (local development)
+const pool = new Pool(
+  process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+          rejectUnauthorized: false, // Required for Railway and other cloud providers
+        },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000, // Increased for cloud connections
+      }
+    : {
+        host: process.env.DB_HOST || 'postgres',
+        port: parseInt(process.env.DB_PORT || '5432'),
+        database: process.env.DB_NAME || 'babelapp',
+        user: process.env.DB_USER || 'babelapp_user',
+        password: process.env.DB_PASSWORD || 'babelapp_password',
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000,
+      }
+);
 
 // Test database connection
 pool.on('connect', () => {

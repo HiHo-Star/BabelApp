@@ -65,12 +65,48 @@ export const getTaskById = async (taskId: string) => {
 export const getChatById = async (chatId: string) => {
   const query = 'SELECT * FROM chats WHERE id = $1';
   const result = await pool.query(query, [chatId]);
-  
+
   if (result.rows.length === 0) {
     throw new Error('Chat not found');
   }
-  
+
   return result.rows[0];
+};
+
+// Helper function to create or get a private chat
+export const createOrGetPrivateChat = async (user1Id: string, user2Id: string) => {
+  // Generate chat ID using sorted user IDs (same as Android app logic)
+  const sortedUsers = [user1Id, user2Id].sort();
+  const chatId = `private_${sortedUsers[0]}_${sortedUsers[1]}`;
+
+  // Check if chat already exists
+  const checkQuery = 'SELECT * FROM chats WHERE id = $1';
+  const checkResult = await pool.query(checkQuery, [chatId]);
+
+  if (checkResult.rows.length > 0) {
+    return checkResult.rows[0];
+  }
+
+  // Create new private chat
+  const createQuery = `
+    INSERT INTO chats (id, name, chat_type, is_private)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+  `;
+  const chatName = `Private: ${user1Id} & ${user2Id}`;
+  const createResult = await pool.query(createQuery, [chatId, chatName, 'private', true]);
+
+  // Add both users as participants
+  const participantQuery = `
+    INSERT INTO chat_participants (chat_id, user_id, role)
+    VALUES ($1, $2, $3)
+  `;
+  await pool.query(participantQuery, [chatId, user1Id, 'member']);
+  await pool.query(participantQuery, [chatId, user2Id, 'member']);
+
+  console.log(`✅ Created private chat: ${chatId} for users ${user1Id} and ${user2Id}`);
+
+  return createResult.rows[0];
 };
 
 // Helper function to get messages by chat ID

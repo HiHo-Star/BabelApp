@@ -38,7 +38,9 @@ import authRoutes from './routes/auth';
 import uploadRoutes from './routes/upload';
 import ttsRoutes from './routes/tts';
 import databaseRoutes from './routes/database';
+import messagesRoutes from './routes/messages';
 import { TranslationService } from './services/translation';
+import { createMessage, createMessageTranslation } from './config/database';
 import path from 'path';
 
 // Serve static files from uploads directory
@@ -54,6 +56,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/tts', ttsRoutes);
 app.use('/api/database', databaseRoutes);
+app.use('/api', messagesRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -222,6 +225,66 @@ io.on('connection', (socket) => {
       console.error('Translation error:', error);
       // If translation fails, just use original content
       messageData.translations[senderLanguage] = textToTranslate;
+    }
+
+    // Save message to database
+    console.log('=== SAVING MESSAGE TO DATABASE ===');
+    try {
+      // Determine content to save (use transcription for audio, content for text/images)
+      const contentToSave = data.transcription && data.transcription.trim() !== ''
+        ? data.transcription
+        : data.content;
+
+      const savedMessage = await createMessage({
+        chat_id: data.chatId,
+        sender_id: socket.handshake.query.userId as string || 'unknown',
+        content: contentToSave,
+        content_type: data.contentType || 'text',
+        original_language: senderLanguage
+      });
+
+      console.log('Message saved with ID:', savedMessage.id);
+
+      // Update messageData with database-generated ID
+      messageData.id = savedMessage.id;
+      messageData.createdAt = savedMessage.created_at;
+
+      // Save all translations to database
+      console.log('=== SAVING TRANSLATIONS TO DATABASE ===');
+      const translationPromises = Object.entries(messageData.translations)
+        .filter(([lang]) => lang !== senderLanguage) // Don't save original as translation
+        .map(([lang, text]) =>
+          createMessageTranslation({
+            message_id: savedMessage.id,
+            target_language: lang,
+            translated_content: text as string
+          })
+        );
+
+      await Promise.all(translationPromises);
+      console.log('All translations saved to database');
+
+      // Save caption translations if present
+      if (messageData.captionTranslations) {
+        console.log('=== SAVING CAPTION TRANSLATIONS TO DATABASE ===');
+        const captionTranslationPromises = Object.entries(messageData.captionTranslations)
+          .filter(([lang]) => lang !== senderLanguage)
+          .map(([lang, text]) =>
+            createMessageTranslation({
+              message_id: savedMessage.id + '-caption',
+              target_language: lang,
+              translated_content: text as string
+            })
+          );
+
+        await Promise.all(captionTranslationPromises);
+        console.log('All caption translations saved');
+      }
+
+      console.log('=== DATABASE SAVE COMPLETE ===');
+    } catch (dbError) {
+      console.error('❌ Failed to save message to database:', dbError);
+      // Continue with broadcast even if database save fails
     }
 
     console.log('Broadcasting message to room:', messageData);

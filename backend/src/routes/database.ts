@@ -23,7 +23,7 @@ const isValidTable = (tableName: string): boolean => {
 router.get('/:tableName', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tableName } = req.params;
-    const { page = 1, limit = 20, search = '' } = req.query;
+    const { page = 1, limit = 20, search = '', sortBy = '', sortOrder = 'DESC' } = req.query;
 
     if (!isValidTable(tableName)) {
       res.status(400).json({ error: 'Invalid table name' });
@@ -65,11 +65,25 @@ router.get('/:tableName', async (req: Request, res: Response): Promise<void> => 
     const countResult = await pool.query(countQuery, queryParams);
     const totalCount = parseInt(countResult.rows[0].count);
 
+    // Determine which column to order by
+    let orderByColumn: string;
+    const validSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
+    if (sortBy && columns.includes(sortBy as string)) {
+      // Use user-specified sort column if valid
+      orderByColumn = `${sortBy} ${validSortOrder}`;
+    } else {
+      // Default ordering
+      const hasCreatedAt = columns.includes('created_at');
+      const hasId = columns.includes('id');
+      orderByColumn = hasCreatedAt ? 'created_at DESC' : hasId ? 'id DESC' : `${columns[0]} DESC`;
+    }
+
     // Get paginated data
     const dataQuery = `
       SELECT * FROM ${tableName}
       ${searchCondition}
-      ORDER BY created_at DESC
+      ORDER BY ${orderByColumn}
       LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
     `;
     const dataResult = await pool.query(dataQuery, [...queryParams, Number(limit), offset]);

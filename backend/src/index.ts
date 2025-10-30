@@ -242,13 +242,12 @@ io.on('connection', (socket) => {
           const user2Id = parts[2];
           console.log(`Creating/getting private chat for users: ${user1Id} and ${user2Id}`);
 
-          try {
-            await createOrGetPrivateChat(user1Id, user2Id);
-            console.log('Private chat ensured in database');
-          } catch (chatError) {
-            console.error('Error ensuring private chat exists:', chatError);
-            // Continue with message save even if chat creation fails
-          }
+          // Create or get the chat - this MUST succeed before saving the message
+          await createOrGetPrivateChat(user1Id, user2Id);
+          console.log('✅ Private chat ensured in database');
+        } else {
+          console.error('❌ Invalid private chat ID format:', data.chatId);
+          throw new Error('Invalid private chat ID format');
         }
       }
 

@@ -40,7 +40,7 @@ import ttsRoutes from './routes/tts';
 import databaseRoutes from './routes/database';
 import messagesRoutes from './routes/messages';
 import { TranslationService } from './services/translation';
-import { createMessage, createMessageTranslation } from './config/database';
+import { createMessage, createMessageTranslation, createOrGetPrivateChat } from './config/database';
 import path from 'path';
 
 // Serve static files from uploads directory
@@ -230,6 +230,28 @@ io.on('connection', (socket) => {
     // Save message to database
     console.log('=== SAVING MESSAGE TO DATABASE ===');
     try {
+      // Check if this is a private chat and create it if it doesn't exist
+      if (data.chatId.startsWith('private_')) {
+        console.log('=== PRIVATE CHAT DETECTED ===');
+        console.log('Chat ID:', data.chatId);
+
+        // Extract user IDs from chat ID format: private_user1_user2
+        const parts = data.chatId.split('_');
+        if (parts.length >= 3) {
+          const user1Id = parts[1];
+          const user2Id = parts[2];
+          console.log(`Creating/getting private chat for users: ${user1Id} and ${user2Id}`);
+
+          try {
+            await createOrGetPrivateChat(user1Id, user2Id);
+            console.log('Private chat ensured in database');
+          } catch (chatError) {
+            console.error('Error ensuring private chat exists:', chatError);
+            // Continue with message save even if chat creation fails
+          }
+        }
+      }
+
       // Determine content to save (use transcription for audio, content for text/images)
       const contentToSave = data.transcription && data.transcription.trim() !== ''
         ? data.transcription

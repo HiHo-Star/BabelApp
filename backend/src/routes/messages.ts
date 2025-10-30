@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { pool, getMessagesByChatId } from '../config/database';
+import { pool, getMessagesByChatId, markMessagesAsRead, getUnreadCountForChat, getUnreadCountsForUser } from '../config/database';
 
 const router = Router();
 
@@ -70,6 +70,69 @@ router.get('/messages/:messageId/translations', async (req, res) => {
   } catch (error: any) {
     console.error('Error loading translations:', error);
     res.status(500).json({ error: 'Failed to load translations', details: error.message });
+  }
+});
+
+// Mark all messages in a chat as read for a user
+router.post('/chats/:chatId/mark-read', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId is required' });
+      return;
+    }
+
+    console.log(`Marking messages as read in chat ${chatId} for user ${userId}`);
+
+    const markedCount = await markMessagesAsRead(chatId, userId);
+
+    console.log(`Marked ${markedCount} messages as read`);
+
+    res.json({ success: true, markedCount });
+  } catch (error: any) {
+    console.error('Error marking messages as read:', error);
+    res.status(500).json({ error: 'Failed to mark messages as read', details: error.message });
+  }
+});
+
+// Get unread count for a specific chat
+router.get('/chats/:chatId/unread-count', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId query parameter is required' });
+      return;
+    }
+
+    const unreadCount = await getUnreadCountForChat(chatId, userId as string);
+
+    res.json({ chatId, unreadCount });
+  } catch (error: any) {
+    console.error('Error getting unread count:', error);
+    res.status(500).json({ error: 'Failed to get unread count', details: error.message });
+  }
+});
+
+// Get unread counts for all chats for a user
+router.get('/unread-counts', async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId query parameter is required' });
+      return;
+    }
+
+    const unreadCounts = await getUnreadCountsForUser(userId as string);
+
+    res.json({ unreadCounts });
+  } catch (error: any) {
+    console.error('Error getting unread counts:', error);
+    res.status(500).json({ error: 'Failed to get unread counts', details: error.message });
   }
 });
 

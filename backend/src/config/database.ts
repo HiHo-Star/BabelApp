@@ -215,6 +215,78 @@ export const getChatParticipants = async (chatId: string) => {
     WHERE cp.chat_id = $1
   `;
   const result = await pool.query(query, [chatId]);
-  
+
   return result.rows;
+};
+
+// Helper function to mark messages as read
+export const markMessagesAsRead = async (chatId: string, userId: string) => {
+  // Get all unread messages in this chat for this user
+  const unreadMessagesQuery = `
+    SELECT m.id
+    FROM messages m
+    LEFT JOIN message_read_receipts mrr ON m.id = mrr.message_id AND mrr.user_id = $2
+    WHERE m.chat_id = $1
+      AND m.sender_id != $2
+      AND mrr.id IS NULL
+  `;
+  const unreadMessages = await pool.query(unreadMessagesQuery, [chatId, userId]);
+
+  // Insert read receipts for all unread messages
+  if (unreadMessages.rows.length > 0) {
+    const insertQuery = `
+      INSERT INTO message_read_receipts (message_id, user_id, read_at)
+      VALUES ($1, $2, CURRENT_TIMESTAMP)
+      ON CONFLICT (message_id, user_id) DO NOTHING
+    `;
+
+    const insertPromises = unreadMessages.rows.map(row =>
+      pool.query(insertQuery, [row.id, userId])
+    );
+
+    await Promise.all(insertPromises);
+  }
+
+  return unreadMessages.rows.length;
+};
+
+// Helper function to get unread count for a specific chat
+export const getUnreadCountForChat = async (chatId: string, userId: string) => {
+  const query = `
+    SELECT COUNT(*) as unread_count
+    FROM messages m
+    LEFT JOIN message_read_receipts mrr ON m.id = mrr.message_id AND mrr.user_id = $2
+    WHERE m.chat_id = $1
+      AND m.sender_id != $2
+      AND mrr.id IS NULL
+  `;
+  const result = await pool.query(query, [chatId, userId]);
+
+  return parseInt(result.rows[0].unread_count);
+};
+
+// Helper function to get unread counts for all chats for a user
+export const getUnreadCountsForUser = async (userId: string) => {
+  const query = `
+    SELECT
+      c.id as chat_id,
+      COUNT(m.id) as unread_count
+    FROM chats c
+    JOIN chat_participants cp ON c.id = cp.chat_id
+    LEFT JOIN messages m ON c.id = m.chat_id AND m.sender_id != $1
+    LEFT JOIN message_read_receipts mrr ON m.id = mrr.message_id AND mrr.user_id = $1
+    WHERE cp.user_id = $1
+      AND mrr.id IS NULL
+    GROUP BY c.id
+    HAVING COUNT(m.id) > 0
+  `;
+  const result = await pool.query(query, [userId]);
+
+  // Convert to object for easy lookup: { chatId: unreadCount }
+  const unreadCounts: { [key: string]: number } = {};
+  result.rows.forEach(row => {
+    unreadCounts[row.chat_id] = parseInt(row.unread_count);
+  });
+
+  return unreadCounts;
 }; 

@@ -32,7 +32,8 @@ router.get('/chats-summary', async (req, res) => {
       SELECT DISTINCT ON (c.id)
         c.id as chat_id,
         c.name as chat_name,
-        c.type as chat_type,
+        c.chat_type,
+        c.is_private,
         m.id as last_message_id,
         m.content as last_message_content,
         m.sender_id as last_message_sender,

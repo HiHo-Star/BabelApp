@@ -1,7 +1,19 @@
 import { Router } from 'express';
-import { pool, getMessagesByChatId, markMessagesAsRead, getUnreadCountForChat, getUnreadCountsForUser } from '../config/database';
+import { pool, getMessagesByChatId, markMessagesAsRead, getUnreadCountForChat, getUnreadCountsForUser, getActiveUsersLanguages } from '../config/database';
 
 const router = Router();
+
+// Get list of languages used by active users
+router.get('/active-languages', async (req, res) => {
+  try {
+    const languages = await getActiveUsersLanguages();
+    console.log('Active languages fetched:', languages);
+    res.json({ languages });
+  } catch (error: any) {
+    console.error('Error fetching active languages:', error);
+    res.status(500).json({ error: 'Failed to fetch active languages', details: error.message });
+  }
+});
 
 // Get chat summaries with latest messages for a user
 router.get('/chats-summary', async (req, res) => {

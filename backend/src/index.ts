@@ -40,8 +40,41 @@ import ttsRoutes from './routes/tts';
 import databaseRoutes from './routes/database';
 import messagesRoutes from './routes/messages';
 import { TranslationService } from './services/translation';
-import { createMessage, createMessageTranslation, createOrGetPrivateChat } from './config/database';
+import { createMessage, createMessageTranslation, createOrGetPrivateChat, getActiveUsersLanguages } from './config/database';
 import path from 'path';
+
+// Cache for active users' languages (refreshed every 5 minutes)
+let cachedTargetLanguages: string[] = ['en']; // Default to English
+let lastLanguageCacheUpdate = 0;
+const LANGUAGE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Function to get target languages with caching
+async function getTargetLanguages(): Promise<string[]> {
+  const now = Date.now();
+
+  // Refresh cache if expired
+  if (now - lastLanguageCacheUpdate > LANGUAGE_CACHE_TTL) {
+    try {
+      const languages = await getActiveUsersLanguages();
+
+      // Filter out duplicates and ensure we always have English
+      const uniqueLanguages = Array.from(new Set(languages));
+      if (!uniqueLanguages.includes('en')) {
+        uniqueLanguages.push('en');
+      }
+
+      cachedTargetLanguages = uniqueLanguages;
+      lastLanguageCacheUpdate = now;
+
+      console.log('✅ Language cache refreshed:', cachedTargetLanguages);
+    } catch (error) {
+      console.error('❌ Failed to refresh language cache:', error);
+      // Keep using cached languages on error
+    }
+  }
+
+  return cachedTargetLanguages;
+}
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -148,9 +181,10 @@ io.on('connection', (socket) => {
       translations: {} as { [key: string]: string }
     };
 
-    // Translate message to common languages (en, he, zh)
+    // Translate message to languages used by active users
     console.log('=== TRANSLATING MESSAGE ===');
-    const targetLanguages = ['en', 'he', 'iw', 'zh', 'zh-CN'];
+    const targetLanguages = await getTargetLanguages();
+    console.log('Target languages (from active users):', targetLanguages);
 
     // Determine what text to translate (use transcription for audio messages if available)
     const textToTranslate = data.transcription && data.transcription.trim() !== ''
@@ -351,13 +385,18 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const PORT = process.env.PORT || 3001;
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log('=== SERVER STARTED - CLEANING UP ALL ROOMS ===');
-  
+
   // Clean up any existing rooms on server start
   io.sockets.adapter.rooms.clear();
   console.log('All rooms cleared on server start');
+
+  // Initialize language cache on startup
+  console.log('=== INITIALIZING LANGUAGE CACHE ===');
+  await getTargetLanguages();
+  console.log('Language cache initialized:', cachedTargetLanguages);
 });
 
 // Handle server shutdown gracefully

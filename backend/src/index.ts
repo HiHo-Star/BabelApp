@@ -127,7 +127,8 @@ io.on('connection', (socket) => {
     console.log('Users in room:', roomSize);
     console.log('All rooms:', Array.from(io.sockets.adapter.rooms.keys()));
 
-    // Create message ID
+    // Create message ID and capture timestamp BEFORE translation starts
+    const messageTimestamp = new Date().toISOString();
     const messageId = `${Date.now()}-${socket.id}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Get sender language from query or default to 'en'
@@ -138,7 +139,7 @@ io.on('connection', (socket) => {
     const messageData: any = {
       ...data,
       id: messageId,
-      createdAt: new Date().toISOString(),
+      createdAt: messageTimestamp,
       sender: {
         id: socket.handshake.query.userId || 'unknown',
         displayName: socket.handshake.query.userId || 'Unknown User'
@@ -261,7 +262,8 @@ io.on('connection', (socket) => {
         sender_id: socket.handshake.query.userId as string || 'unknown',
         content: contentToSave,
         content_type: data.contentType || 'text',
-        original_language: senderLanguage
+        original_language: senderLanguage,
+        created_at: messageTimestamp
       });
 
       console.log('Message saved with ID:', savedMessage.id);

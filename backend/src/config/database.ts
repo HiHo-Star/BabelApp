@@ -307,4 +307,21 @@ export const getUnreadCountsForUser = async (userId: string) => {
   });
 
   return unreadCounts;
+};
+
+// Helper function to get all active users' preferred languages
+export const getActiveUsersLanguages = async () => {
+  const query = `
+    SELECT DISTINCT language
+    FROM users
+    WHERE language IS NOT NULL
+      AND language != ''
+  `;
+  const result = await pool.query(query);
+
+  // Return array of language codes
+  const languages = result.rows.map(row => row.language);
+
+  console.log('Active users languages:', languages);
+  return languages;
 }; 

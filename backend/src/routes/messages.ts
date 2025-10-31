@@ -3,6 +3,58 @@ import { pool, getMessagesByChatId, markMessagesAsRead, getUnreadCountForChat, g
 
 const router = Router();
 
+// Get chat summaries with latest messages for a user
+router.get('/chats-summary', async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId query parameter is required' });
+      return;
+    }
+
+    console.log(`Loading chat summaries for user ${userId}`);
+
+    // Get all chats for the user with their latest message
+    const result = await pool.query(`
+      SELECT DISTINCT ON (c.id)
+        c.id as chat_id,
+        c.name as chat_name,
+        c.type as chat_type,
+        m.id as last_message_id,
+        m.content as last_message_content,
+        m.sender_id as last_message_sender,
+        m.created_at as last_message_timestamp,
+        u.username as sender_username,
+        u.display_name as sender_display_name
+      FROM chats c
+      LEFT JOIN chat_participants cp ON c.id = cp.chat_id
+      LEFT JOIN messages m ON c.id = m.chat_id
+      LEFT JOIN users u ON m.sender_id = u.id
+      WHERE cp.user_id = $1
+        OR c.id LIKE $2
+      ORDER BY c.id, m.created_at DESC
+    `, [userId, `%${userId}%`]);
+
+    const chatSummaries = result.rows.map(row => ({
+      chatId: row.chat_id,
+      chatName: row.chat_name,
+      chatType: row.chat_type,
+      lastMessage: row.last_message_content || '',
+      lastMessageSender: row.sender_username || row.last_message_sender,
+      lastMessageTimestamp: row.last_message_timestamp
+        ? new Date(row.last_message_timestamp).getTime()
+        : null
+    }));
+
+    console.log(`Loaded ${chatSummaries.length} chat summaries`);
+    res.json({ chatSummaries });
+  } catch (error: any) {
+    console.error('Error loading chat summaries:', error);
+    res.status(500).json({ error: 'Failed to load chat summaries', details: error.message });
+  }
+});
+
 // Get messages for a specific chat
 router.get('/chats/:chatId/messages', async (req, res) => {
   try {

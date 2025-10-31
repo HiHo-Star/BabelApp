@@ -171,21 +171,39 @@ export const createMessage = async (messageData: {
   content: string;
   content_type?: string;
   original_language?: string;
+  created_at?: string;
 }) => {
-  const query = `
-    INSERT INTO messages (chat_id, sender_id, content, content_type, original_language)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING *
-  `;
-  const values = [
-    messageData.chat_id,
-    messageData.sender_id,
-    messageData.content,
-    messageData.content_type || 'text',
-    messageData.original_language || 'en'
-  ];
+  const query = messageData.created_at
+    ? `
+      INSERT INTO messages (chat_id, sender_id, content, content_type, original_language, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `
+    : `
+      INSERT INTO messages (chat_id, sender_id, content, content_type, original_language)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+    `;
+
+  const values = messageData.created_at
+    ? [
+        messageData.chat_id,
+        messageData.sender_id,
+        messageData.content,
+        messageData.content_type || 'text',
+        messageData.original_language || 'en',
+        messageData.created_at
+      ]
+    : [
+        messageData.chat_id,
+        messageData.sender_id,
+        messageData.content,
+        messageData.content_type || 'text',
+        messageData.original_language || 'en'
+      ];
+
   const result = await pool.query(query, values);
-  
+
   return result.rows[0];
 };
 

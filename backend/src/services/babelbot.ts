@@ -69,11 +69,11 @@ export class BabelBotService {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+          const errorData: any = await response.json().catch(() => ({}));
           throw new Error(`HTTP ${response.status}: ${errorData.detail?.error || response.statusText}`);
         }
 
-        const responseData: ChatResponse = await response.json();
+        const responseData = await response.json() as ChatResponse;
         console.log(`[BabelBot] Received response:`, responseData);
         return responseData;
       } catch (error: any) {
@@ -86,16 +86,8 @@ export class BabelBotService {
     } catch (error: any) {
       console.error('[BabelBot] Error communicating with chatbot service:', error);
       
-      if (error.response) {
-        console.error('[BabelBot] Response status:', error.response.status);
-        console.error('[BabelBot] Response data:', error.response.data);
-      } else if (error.request) {
-        console.error('[BabelBot] No response received. Service may be down.');
-      }
-
-      // Return a fallback response
+      // Re-throw with a more descriptive message
       throw new Error(
-        error.response?.data?.detail?.error || 
         error.message || 
         'Failed to communicate with BabelBot service'
       );
@@ -120,7 +112,7 @@ export class BabelBotService {
         return false;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { status?: string };
       return data.status === 'healthy';
     } catch (error) {
       console.error('[BabelBot] Health check failed:', error);

@@ -40,6 +40,7 @@ import ttsRoutes from './routes/tts';
 import databaseRoutes from './routes/database';
 import messagesRoutes from './routes/messages';
 import { TranslationService } from './services/translation';
+import { babelBotService } from './services/babelbot';
 import { createMessage, createMessageTranslation, createOrGetPrivateChat, getActiveUsersLanguages } from './config/database';
 import path from 'path';
 
@@ -167,6 +168,133 @@ io.on('connection', (socket) => {
     // Get sender language from query or default to 'en'
     const senderLanguage = (socket.handshake.query.userLanguage as string) || 'en';
     console.log('Sender language:', senderLanguage);
+
+    // Check if this is a BabelBot chat
+    const isBabelBotChat = data.chatId && data.chatId.startsWith('babelbot-');
+    
+    if (isBabelBotChat) {
+      console.log('=== BABELBOT CHAT DETECTED ===');
+      console.log('Chat ID:', data.chatId);
+      console.log('User message:', data.content);
+      
+      // Save user message first
+      const userId = socket.handshake.query.userId as string || 'unknown';
+      const userMessageData: any = {
+        ...data,
+        id: messageId,
+        createdAt: messageTimestamp,
+        sender: {
+          id: userId,
+          displayName: userId
+        },
+        originalLanguage: senderLanguage,
+        translations: {} as { [key: string]: string }
+      };
+
+      // Save user message to database
+      try {
+        const contentToSave = data.transcription && data.transcription.trim() !== ''
+          ? data.transcription
+          : data.content;
+
+        const savedUserMessage = await createMessage({
+          chat_id: data.chatId,
+          sender_id: userId,
+          content: contentToSave,
+          content_type: data.contentType || 'text',
+          original_language: senderLanguage,
+          created_at: messageTimestamp
+        });
+
+        userMessageData.id = savedUserMessage.id;
+        userMessageData.createdAt = savedUserMessage.created_at;
+
+        // Broadcast user message
+        io.to(data.chatId).emit('new-message', userMessageData);
+        io.emit('chat-message-received', userMessageData);
+      } catch (dbError) {
+        console.error('❌ Failed to save user message to database:', dbError);
+      }
+
+      // Forward to BabelBot service and get response
+      try {
+        const botResponse = await babelBotService.chat(
+          data.content || data.transcription || '',
+          userId,
+          data.chatId,
+          { language: senderLanguage }
+        );
+
+        console.log('=== BABELBOT RESPONSE RECEIVED ===');
+        console.log('Bot response:', botResponse.message);
+
+        // Create bot response message
+        const botMessageTimestamp = new Date().toISOString();
+        const botMessageId = `${Date.now()}-babelbot-${Math.random().toString(36).substr(2, 9)}`;
+        
+        const botMessageData: any = {
+          chatId: data.chatId,
+          content: botResponse.message,
+          contentType: 'text',
+          id: botMessageId,
+          createdAt: botMessageTimestamp,
+          sender: {
+            id: 'babelbot',
+            displayName: 'Babel Bot'
+          },
+          originalLanguage: senderLanguage,
+          translations: {} as { [key: string]: string }
+        };
+
+        // Save bot response to database
+        try {
+          const savedBotMessage = await createMessage({
+            chat_id: data.chatId,
+            sender_id: 'babelbot',
+            content: botResponse.message,
+            content_type: 'text',
+            original_language: senderLanguage,
+            created_at: botMessageTimestamp
+          });
+
+          botMessageData.id = savedBotMessage.id;
+          botMessageData.createdAt = savedBotMessage.created_at;
+
+          // Broadcast bot response
+          io.to(data.chatId).emit('new-message', botMessageData);
+          io.emit('chat-message-received', botMessageData);
+          console.log('=== BABELBOT RESPONSE SENT ===');
+        } catch (dbError) {
+          console.error('❌ Failed to save bot message to database:', dbError);
+          // Still broadcast even if database save fails
+          io.to(data.chatId).emit('new-message', botMessageData);
+          io.emit('chat-message-received', botMessageData);
+        }
+      } catch (botError: any) {
+        console.error('❌ Failed to get BabelBot response:', botError);
+        
+        // Send error message to user
+        const errorMessageData: any = {
+          chatId: data.chatId,
+          content: 'Sorry, I\'m having trouble responding right now. Please try again later.',
+          contentType: 'text',
+          id: `${Date.now()}-babelbot-error-${Math.random().toString(36).substr(2, 9)}`,
+          createdAt: new Date().toISOString(),
+          sender: {
+            id: 'babelbot',
+            displayName: 'Babel Bot'
+          },
+          originalLanguage: senderLanguage,
+          translations: {} as { [key: string]: string }
+        };
+
+        io.to(data.chatId).emit('new-message', errorMessageData);
+        io.emit('chat-message-received', errorMessageData);
+      }
+
+      // Return early - don't process as regular message
+      return;
+    }
 
     // Create message data with original content
     const messageData: any = {

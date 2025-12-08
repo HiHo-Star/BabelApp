@@ -50,16 +50,34 @@ class ResponseFormatter:
             return "I'm sorry, I'm not available right now. Please check the configuration."
 
         try:
+            # Detect user's language from context or message
+            user_language = 'en'  # Default to English
+            if context and 'language' in context:
+                user_language = context['language']
+            elif conversation_history and len(conversation_history) > 0:
+                # Try to detect from last user message
+                last_user_msg = next((msg for msg in reversed(conversation_history) if msg.get('role') == 'user'), None)
+                if last_user_msg:
+                    # Simple language detection - check for Hebrew/Arabic characters
+                    content = last_user_msg.get('content', '')
+                    if any('\u0590' <= char <= '\u05FF' for char in content):  # Hebrew
+                        user_language = 'he'
+                    elif any('\u0600' <= char <= '\u06FF' for char in content):  # Arabic
+                        user_language = 'ar'
+                    elif any('\u4E00' <= char <= '\u9FFF' for char in content):  # Chinese
+                        user_language = 'zh'
+            
             prompt = self._build_role_prompt(
                 user_message, 
                 conversation_history, 
-                context
+                context,
+                user_language
             )
 
             response = self.model.generate_content(prompt)
             formatted_response = response.text.strip()
 
-            logger.info(f"Response formatted successfully")
+            logger.info(f"Response formatted successfully in language: {user_language}")
             return formatted_response
 
         except Exception as e:
@@ -70,7 +88,8 @@ class ResponseFormatter:
         self,
         user_message: str,
         conversation_history: List[Dict[str, str]] = None,
-        context: Dict[str, Any] = None
+        context: Dict[str, Any] = None,
+        user_language: str = 'en'
     ) -> str:
         """
         Build the system prompt with construction/building domain expertise
@@ -116,9 +135,10 @@ You act as a trusted advisor, providing professional guidance, recommendations, 
 10. Provide step-by-step instructions for construction processes when requested
 11. Use examples and real-world scenarios to illustrate concepts
 12. Be professional, respectful, and supportive - you're helping construction professionals succeed
-13. Respond in the same language as the user (Hebrew, English, Arabic, etc.) unless asked otherwise
+13. CRITICAL: Respond ONLY in the same language as the user's message. Do NOT include translations in other languages (Hebrew, Arabic, etc.) in your response. Respond purely in the user's language.
 14. When discussing measurements, use both metric and imperial units when relevant
 15. Consider environmental impact and sustainability in your recommendations
+16. NEVER include inline translations or multiple language versions in your response - respond only in the user's language
 """
         
         # ============================================
@@ -221,10 +241,13 @@ DOMAIN KNOWLEDGE:
 USER MESSAGE:
 "{user_message}"
 
-YOUR TASK:
-Respond as a professional construction engineer and senior construction manager. Provide expert guidance, recommendations, and solutions related to construction, building, materials, methodologies, and all related topics. Be thorough, practical, and professional.
+LANGUAGE REQUIREMENT:
+The user's message is in {user_language}. You MUST respond ONLY in {user_language}. Do NOT include translations in other languages. Do NOT show Hebrew/Arabic/Chinese translations alongside your response. Respond purely in {user_language}.
 
-RESPONSE (only the message, no explanations or meta-commentary):"""
+YOUR TASK:
+Respond as a professional construction engineer and senior construction manager. Provide expert guidance, recommendations, and solutions related to construction, building, materials, methodologies, and all related topics. Be thorough, practical, and professional. Respond ONLY in {user_language}.
+
+RESPONSE (only the message in {user_language}, no explanations, no meta-commentary, no translations):"""
 
         return prompt
 

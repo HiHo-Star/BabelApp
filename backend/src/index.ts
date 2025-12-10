@@ -39,8 +39,13 @@ import uploadRoutes from './routes/upload';
 import ttsRoutes from './routes/tts';
 import databaseRoutes from './routes/database';
 import messagesRoutes from './routes/messages';
+import taskManagementRoutes from './routes/taskmanagement';
+import projectsRoutes from './routes/projects';
+import tasksRoutes from './routes/tasks';
+import missionsRoutes from './routes/missions';
 import { TranslationService } from './services/translation';
 import { babelBotService } from './services/babelbot';
+import { taskManagementService } from './services/taskmanagement';
 import { createMessage, createMessageTranslation, createOrGetPrivateChat, getActiveUsersLanguages } from './config/database';
 import path from 'path';
 
@@ -91,6 +96,10 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/tts', ttsRoutes);
 app.use('/api/database', databaseRoutes);
 app.use('/api', messagesRoutes);
+app.use('/api/taskmanagement', taskManagementRoutes);
+app.use('/api/projects', projectsRoutes);
+app.use('/api/tasks', tasksRoutes);
+app.use('/api/missions', missionsRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {

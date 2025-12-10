@@ -9,6 +9,7 @@ const VALID_TABLES = [
   'departments', 'teams', 'team_members',
   'chats', 'chat_participants', 'messages', 'message_translations', 'message_reactions', 'message_read_receipts',
   'projects', 'project_stages', 'project_teams',
+  'missions',
   'tasks', 'task_comments', 'task_attachments',
   'safety_forms', 'safety_signatures',
   'audit_logs', 'notifications', 'system_settings'
@@ -18,6 +19,54 @@ const VALID_TABLES = [
 const isValidTable = (tableName: string): boolean => {
   return VALID_TABLES.includes(tableName);
 };
+
+// POST /api/database/create-babelbot-user - Create BabelBot user (must be before /:tableName route)
+router.post('/create-babelbot-user', async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Check if user already exists
+    const checkResult = await pool.query(
+      'SELECT id, username, display_name FROM users WHERE id = $1',
+      ['babelbot']
+    );
+
+    if (checkResult.rows.length > 0) {
+      res.json({
+        success: true,
+        message: 'BabelBot user already exists',
+        user: checkResult.rows[0]
+      });
+      return;
+    }
+
+    // Create BabelBot user
+    const insertQuery = `
+      INSERT INTO users (id, username, display_name, email, language, is_active, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      RETURNING *
+    `;
+
+    const result = await pool.query(insertQuery, [
+      'babelbot',
+      'babelbot',
+      'Babel Bot',
+      'babelbot@babelapp.com',
+      'en',
+      true
+    ]);
+
+    res.json({
+      success: true,
+      message: 'BabelBot user created successfully',
+      user: result.rows[0]
+    });
+  } catch (error: any) {
+    console.error('Error creating BabelBot user:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
 
 // GET /api/database/:tableName - Get all records from a table
 router.get('/:tableName', async (req: Request, res: Response): Promise<void> => {

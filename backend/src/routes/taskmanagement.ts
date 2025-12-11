@@ -278,22 +278,45 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
             }
           }
         } else if (err.message.includes('department_id')) {
-          // department_id doesn't exist but deleted_at does
-          usersResult = await pool.query(`
-            SELECT 
-              u.id,
-              u.username,
-              u.display_name,
-              u.job_title,
-              u.department as department_id,
-              u.role,
-              u.language,
-              COALESCE(d.name, u.department) as department_name
-            FROM users u
-            LEFT JOIN departments d ON u.department = d.name
-            WHERE u.deleted_at IS NULL
-            ORDER BY u.display_name
-          `);
+          // department_id doesn't exist, try without deleted_at too since it likely doesn't exist either
+          try {
+            usersResult = await pool.query(`
+              SELECT 
+                u.id,
+                u.username,
+                u.display_name,
+                u.job_title,
+                u.department as department_id,
+                u.role,
+                u.language,
+                COALESCE(d.name, u.department) as department_name
+              FROM users u
+              LEFT JOIN departments d ON u.department = d.name
+              WHERE u.deleted_at IS NULL
+              ORDER BY u.display_name
+            `);
+          } catch (err2: any) {
+            // deleted_at also doesn't exist
+            if (err2.code === '42703' && err2.message.includes('deleted_at')) {
+              usersResult = await pool.query(`
+                SELECT 
+                  u.id,
+                  u.username,
+                  u.display_name,
+                  u.job_title,
+                  u.department as department_id,
+                  u.role,
+                  u.language,
+                  COALESCE(d.name, u.department) as department_name
+                FROM users u
+                LEFT JOIN departments d ON u.department = d.name
+                ORDER BY u.display_name
+              `);
+            } else {
+              console.error('Error fetching users:', err2.message);
+              usersResult = { rows: [] };
+            }
+          }
         } else {
           console.error('Error fetching users:', err.message);
           usersResult = { rows: [] };

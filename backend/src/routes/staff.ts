@@ -14,18 +14,40 @@ const router = express.Router();
  */
 router.get('/departments', async (req: Request, res: Response): Promise<void> => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        id, 
-        name, 
-        description, 
-        color,
-        is_active,
-        created_at as "createdAt"
-      FROM departments
-      WHERE deleted_at IS NULL
-      ORDER BY name
-    `);
+    // Try with color column first, fallback without if it doesn't exist
+    let result;
+    try {
+      result = await pool.query(`
+        SELECT 
+          id, 
+          name, 
+          description, 
+          COALESCE(color, '#3B82F6') as color,
+          is_active,
+          created_at as "createdAt"
+        FROM departments
+        WHERE deleted_at IS NULL
+        ORDER BY name
+      `);
+    } catch (err: any) {
+      // If color column doesn't exist, select without it
+      if (err.code === '42703' && err.message.includes('color')) {
+        result = await pool.query(`
+          SELECT 
+            id, 
+            name, 
+            description, 
+            '#3B82F6' as color,
+            is_active,
+            created_at as "createdAt"
+          FROM departments
+          WHERE deleted_at IS NULL
+          ORDER BY name
+        `);
+      } else {
+        throw err;
+      }
+    }
 
     // Get member counts and team counts for each department
     const departmentsWithCounts = await Promise.all(
@@ -33,6 +55,7 @@ router.get('/departments', async (req: Request, res: Response): Promise<void> =>
         // Count users in this department (handle both department_id and department column)
         let memberCount = 0;
         try {
+          // Try with department_id first
           const userCountResult = await pool.query(`
             SELECT COUNT(*) as count
             FROM users
@@ -41,8 +64,24 @@ router.get('/departments', async (req: Request, res: Response): Promise<void> =>
           `, [dept.id, dept.name]);
           memberCount = parseInt(userCountResult.rows[0]?.count || '0');
         } catch (err: any) {
-          console.error('Error counting users for department:', err.message);
-          memberCount = 0;
+          // If department_id doesn't exist, use department only
+          if (err.code === '42703' && err.message.includes('department_id')) {
+            try {
+              const userCountResult = await pool.query(`
+                SELECT COUNT(*) as count
+                FROM users
+                WHERE department = $1
+                  AND deleted_at IS NULL
+              `, [dept.name]);
+              memberCount = parseInt(userCountResult.rows[0]?.count || '0');
+            } catch (err2: any) {
+              console.error('Error counting users for department:', err2.message);
+              memberCount = 0;
+            }
+          } else {
+            console.error('Error counting users for department:', err.message);
+            memberCount = 0;
+          }
         }
 
         // Count teams in this department (teams table may not exist)
@@ -90,11 +129,28 @@ router.post('/departments', async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const result = await pool.query(`
-      INSERT INTO departments (name, description, color, is_active)
-      VALUES ($1, $2, $3, true)
-      RETURNING *
-    `, [name, description || null, color || null]);
+    // Try inserting with color, fallback without if column doesn't exist
+    let result;
+    try {
+      result = await pool.query(`
+        INSERT INTO departments (name, description, color, is_active)
+        VALUES ($1, $2, $3, true)
+        RETURNING *
+      `, [name, description || null, color || null]);
+    } catch (err: any) {
+      // If color column doesn't exist, insert without it
+      if (err.code === '42703' && err.message.includes('color')) {
+        result = await pool.query(`
+          INSERT INTO departments (name, description, is_active)
+          VALUES ($1, $2, true)
+          RETURNING *
+        `, [name, description || null]);
+        // Add color to result
+        result.rows[0].color = color || '#3B82F6';
+      } else {
+        throw err;
+      }
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
@@ -112,16 +168,41 @@ router.put('/departments/:id', async (req: Request, res: Response): Promise<void
     const { id } = req.params;
     const { name, description, color, is_active } = req.body;
 
-    const result = await pool.query(`
-      UPDATE departments
-      SET name = COALESCE($1, name),
-          description = COALESCE($2, description),
-          color = COALESCE($3, color),
-          is_active = COALESCE($4, is_active),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
-      RETURNING *
-    `, [name, description, color, is_active, id]);
+    // Try updating with color, fallback without if column doesn't exist
+    let result;
+    try {
+      result = await pool.query(`
+        UPDATE departments
+        SET name = COALESCE($1, name),
+            description = COALESCE($2, description),
+            color = COALESCE($3, color),
+            is_active = COALESCE($4, is_active),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $5
+        RETURNING *
+      `, [name, description, color, is_active, id]);
+    } catch (err: any) {
+      // If color column doesn't exist, update without it
+      if (err.code === '42703' && err.message.includes('color')) {
+        result = await pool.query(`
+          UPDATE departments
+          SET name = COALESCE($1, name),
+              description = COALESCE($2, description),
+              is_active = COALESCE($3, is_active),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4
+          RETURNING *
+        `, [name, description, is_active, id]);
+        // Add color to result if provided
+        if (color) {
+          result.rows[0].color = color;
+        } else {
+          result.rows[0].color = '#3B82F6';
+        }
+      } else {
+        throw err;
+      }
+    }
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Department not found' });
@@ -435,11 +516,37 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
     const bcrypt = require('bcrypt');
     const passwordHash = await bcrypt.hash(userPassword, 10);
 
-    const result = await pool.query(`
-      INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department_id, role)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, username, email, display_name as "displayName", role, created_at as "createdAt"
-    `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentId || null, role || 'member']);
+    // Try inserting with department_id, fallback to department if it doesn't exist
+    let result;
+    try {
+      result = await pool.query(`
+        INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department_id, role)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, username, email, display_name as "displayName", role, created_at as "createdAt"
+      `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentId || null, role || 'member']);
+    } catch (err: any) {
+      // If department_id doesn't exist, use department column instead
+      if (err.code === '42703' && err.message.includes('department_id')) {
+        // Get department name from departmentId if provided
+        let departmentName = null;
+        if (departmentId) {
+          try {
+            const deptResult = await pool.query(`SELECT name FROM departments WHERE id::text = $1`, [departmentId]);
+            departmentName = deptResult.rows[0]?.name || null;
+          } catch (deptErr: any) {
+            console.error('Error fetching department name:', deptErr.message);
+          }
+        }
+        
+        result = await pool.query(`
+          INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department, role)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING id, username, email, display_name as "displayName", role, created_at as "createdAt"
+        `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentName, role || 'member']);
+      } else {
+        throw err;
+      }
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
@@ -457,19 +564,53 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
     const { id } = req.params;
     const { displayName, fullName, jobTitle, departmentId, role, status, language } = req.body;
 
-    const result = await pool.query(`
-      UPDATE users
-      SET display_name = COALESCE($1, display_name),
-          full_name = COALESCE($2, full_name),
-          job_title = COALESCE($3, job_title),
-          department_id = COALESCE($4, department_id),
-          role = COALESCE($5, role),
-          status = COALESCE($6, status),
-          language = COALESCE($7, language),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8
-      RETURNING *
-    `, [displayName, fullName, jobTitle, departmentId, role, status, language, id]);
+    // Try updating with department_id, fallback to department if it doesn't exist
+    let result;
+    try {
+      result = await pool.query(`
+        UPDATE users
+        SET display_name = COALESCE($1, display_name),
+            full_name = COALESCE($2, full_name),
+            job_title = COALESCE($3, job_title),
+            department_id = COALESCE($4, department_id),
+            role = COALESCE($5, role),
+            status = COALESCE($6, status),
+            language = COALESCE($7, language),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $8
+        RETURNING *
+      `, [displayName, fullName, jobTitle, departmentId, role, status, language, id]);
+    } catch (err: any) {
+      // If department_id doesn't exist, use department column instead
+      if (err.code === '42703' && err.message.includes('department_id')) {
+        // Get department name from departmentId if provided
+        let departmentName = null;
+        if (departmentId) {
+          try {
+            const deptResult = await pool.query(`SELECT name FROM departments WHERE id::text = $1`, [departmentId]);
+            departmentName = deptResult.rows[0]?.name || null;
+          } catch (deptErr: any) {
+            console.error('Error fetching department name:', deptErr.message);
+          }
+        }
+        
+        result = await pool.query(`
+          UPDATE users
+          SET display_name = COALESCE($1, display_name),
+              full_name = COALESCE($2, full_name),
+              job_title = COALESCE($3, job_title),
+              department = COALESCE($4, department),
+              role = COALESCE($5, role),
+              status = COALESCE($6, status),
+              language = COALESCE($7, language),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $8
+          RETURNING *
+        `, [displayName, fullName, jobTitle, departmentName, role, status, language, id]);
+      } else {
+        throw err;
+      }
+    }
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Member not found' });

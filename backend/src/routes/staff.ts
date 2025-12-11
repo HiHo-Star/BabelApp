@@ -519,27 +519,54 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
             }
           }
         } else if (err.message.includes('department_id')) {
-          // department_id doesn't exist but deleted_at does
-          result = await pool.query(`
-            SELECT 
-              u.id,
-              u.username,
-              u.email,
-              u.display_name as "displayName",
-              u.full_name as "fullName",
-              u.job_title as "jobTitle",
-              u.department as "departmentId",
-              u.department as "departmentName",
-              u.role,
-              u.language,
-              u.status,
-              u.avatar_url as "avatarUrl",
-              u.phone_number as "phoneNumber",
-              u.created_at as "createdAt"
-            FROM users u
-            WHERE u.deleted_at IS NULL
-            ORDER BY u.display_name
-          `);
+          // department_id doesn't exist, try with department but handle deleted_at too
+          try {
+            result = await pool.query(`
+              SELECT 
+                u.id,
+                u.username,
+                u.email,
+                u.display_name as "displayName",
+                u.full_name as "fullName",
+                u.job_title as "jobTitle",
+                u.department as "departmentId",
+                u.department as "departmentName",
+                u.role,
+                u.language,
+                u.status,
+                u.avatar_url as "avatarUrl",
+                u.phone_number as "phoneNumber",
+                u.created_at as "createdAt"
+              FROM users u
+              WHERE u.deleted_at IS NULL
+              ORDER BY u.display_name
+            `);
+          } catch (err2: any) {
+            // deleted_at also doesn't exist
+            if (err2.code === '42703' && err2.message.includes('deleted_at')) {
+              result = await pool.query(`
+                SELECT 
+                  u.id,
+                  u.username,
+                  u.email,
+                  u.display_name as "displayName",
+                  u.full_name as "fullName",
+                  u.job_title as "jobTitle",
+                  u.department as "departmentId",
+                  u.department as "departmentName",
+                  u.role,
+                  u.language,
+                  u.status,
+                  u.avatar_url as "avatarUrl",
+                  u.phone_number as "phoneNumber",
+                  u.created_at as "createdAt"
+                FROM users u
+                ORDER BY u.display_name
+              `);
+            } else {
+              throw err2;
+            }
+          }
         } else {
           throw err;
         }
@@ -660,26 +687,53 @@ router.get('/members/:id', async (req: Request, res: Response): Promise<void> =>
             }
           }
         } else if (err.message.includes('department_id')) {
-          // department_id doesn't exist but deleted_at does
-          result = await pool.query(`
-            SELECT 
-              u.id,
-              u.username,
-              u.email,
-              u.display_name as "displayName",
-              u.full_name as "fullName",
-              u.job_title as "jobTitle",
-              u.department as "departmentId",
-              u.department as "departmentName",
-              u.role,
-              u.language,
-              u.status,
-              u.avatar_url as "avatarUrl",
-              u.phone_number as "phoneNumber",
-              u.created_at as "createdAt"
-            FROM users u
-            WHERE u.id = $1 AND u.deleted_at IS NULL
-          `, [id]);
+          // department_id doesn't exist, try with department but handle deleted_at too
+          try {
+            result = await pool.query(`
+              SELECT 
+                u.id,
+                u.username,
+                u.email,
+                u.display_name as "displayName",
+                u.full_name as "fullName",
+                u.job_title as "jobTitle",
+                u.department as "departmentId",
+                u.department as "departmentName",
+                u.role,
+                u.language,
+                u.status,
+                u.avatar_url as "avatarUrl",
+                u.phone_number as "phoneNumber",
+                u.created_at as "createdAt"
+              FROM users u
+              WHERE u.id = $1 AND u.deleted_at IS NULL
+            `, [id]);
+          } catch (err2: any) {
+            // deleted_at also doesn't exist
+            if (err2.code === '42703' && err2.message.includes('deleted_at')) {
+              result = await pool.query(`
+                SELECT 
+                  u.id,
+                  u.username,
+                  u.email,
+                  u.display_name as "displayName",
+                  u.full_name as "fullName",
+                  u.job_title as "jobTitle",
+                  u.department as "departmentId",
+                  u.department as "departmentName",
+                  u.role,
+                  u.language,
+                  u.status,
+                  u.avatar_url as "avatarUrl",
+                  u.phone_number as "phoneNumber",
+                  u.created_at as "createdAt"
+                FROM users u
+                WHERE u.id = $1
+              `, [id]);
+            } else {
+              throw err2;
+            }
+          }
         } else {
           throw err;
         }

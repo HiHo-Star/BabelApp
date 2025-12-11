@@ -48,7 +48,7 @@ class TaskExtractor:
         ])
         
         teams_str = "\n".join([
-            f"- {t.get('name', '')} ({t.get('specialty', 'N/A')}) - {t.get('department_name', 'N/A')}"
+            f"- {t.get('name', '')} - {t.get('department_name', 'N/A')}"
             for t in teams[:30]  # Limit to first 30
         ])
         

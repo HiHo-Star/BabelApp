@@ -43,6 +43,7 @@ import taskManagementRoutes from './routes/taskmanagement';
 import projectsRoutes from './routes/projects';
 import tasksRoutes from './routes/tasks';
 import missionsRoutes from './routes/missions';
+import staffRoutes from './routes/staff';
 import { TranslationService } from './services/translation';
 import { babelBotService } from './services/babelbot';
 import { taskManagementService } from './services/taskmanagement';
@@ -100,6 +101,7 @@ app.use('/api/taskmanagement', taskManagementRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/missions', missionsRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {

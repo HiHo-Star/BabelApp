@@ -30,27 +30,42 @@ router.get('/departments', async (req: Request, res: Response): Promise<void> =>
     // Get member counts and team counts for each department
     const departmentsWithCounts = await Promise.all(
       result.rows.map(async (dept) => {
-        // Count users in this department
-        const userCountResult = await pool.query(`
-          SELECT COUNT(*) as count
-          FROM users
-          WHERE (department_id = $1 OR department = $2)
-            AND deleted_at IS NULL
-        `, [dept.id, dept.name]).catch(() => ({ rows: [{ count: '0' }] }));
+        // Count users in this department (handle both department_id and department column)
+        let memberCount = 0;
+        try {
+          const userCountResult = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM users
+            WHERE (COALESCE(department_id::text, '') = $1 OR department = $2)
+              AND deleted_at IS NULL
+          `, [dept.id, dept.name]);
+          memberCount = parseInt(userCountResult.rows[0]?.count || '0');
+        } catch (err: any) {
+          console.error('Error counting users for department:', err.message);
+          memberCount = 0;
+        }
 
-        // Count teams in this department
-        const teamCountResult = await pool.query(`
-          SELECT COUNT(*) as count
-          FROM teams
-          WHERE department_id = $1
-            AND deleted_at IS NULL
-            AND is_active = true
-        `, [dept.id]).catch(() => ({ rows: [{ count: '0' }] }));
+        // Count teams in this department (teams table may not exist)
+        let teamCount = 0;
+        try {
+          const teamCountResult = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM teams
+            WHERE department_id = $1
+              AND deleted_at IS NULL
+              AND is_active = true
+          `, [dept.id]);
+          teamCount = parseInt(teamCountResult.rows[0]?.count || '0');
+        } catch (err: any) {
+          console.error('Error counting teams for department (table may not exist):', err.message);
+          teamCount = 0;
+        }
 
         return {
           ...dept,
-          memberCount: parseInt(userCountResult.rows[0]?.count || '0'),
-          teamCount: parseInt(teamCountResult.rows[0]?.count || '0')
+          memberCount,
+          teamCount,
+          activeProjects: 0 // Not available from current schema
         };
       })
     );
@@ -147,47 +162,70 @@ router.delete('/departments/:id', async (req: Request, res: Response): Promise<v
  */
 router.get('/teams', async (req: Request, res: Response): Promise<void> => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        t.id,
-        t.name,
-        t.description,
-        t.color,
-        t.department_id as "departmentId",
-        t.leader_id as "leaderId",
-        t.is_active as "isActive",
-        t.created_at as "createdAt",
-        d.name as "departmentName"
-      FROM teams t
-      LEFT JOIN departments d ON t.department_id = d.id
-      WHERE t.deleted_at IS NULL
-      ORDER BY t.name
-    `).catch(() => ({ rows: [] }));
+    // Check if teams table exists first
+    let result;
+    try {
+      result = await pool.query(`
+        SELECT 
+          t.id,
+          t.name,
+          t.description,
+          t.color,
+          t.department_id as "departmentId",
+          t.leader_id as "leaderId",
+          t.is_active as "isActive",
+          t.created_at as "createdAt",
+          d.name as "departmentName"
+        FROM teams t
+        LEFT JOIN departments d ON t.department_id = d.id
+        WHERE t.deleted_at IS NULL
+        ORDER BY t.name
+      `);
+    } catch (err: any) {
+      // Teams table doesn't exist, return empty array
+      console.log('Teams table does not exist, returning empty array');
+      res.json([]);
+      return;
+    }
 
     // Get member counts for each team
     const teamsWithCounts = await Promise.all(
       result.rows.map(async (team) => {
-        const memberCountResult = await pool.query(`
-          SELECT COUNT(*) as count
-          FROM team_members
-          WHERE team_id = $1
-        `, [team.id]).catch(() => ({ rows: [{ count: '0' }] }));
+        // Count team members (team_members table may not exist)
+        let memberCount = 0;
+        try {
+          const memberCountResult = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM team_members
+            WHERE team_id = $1
+          `, [team.id]);
+          memberCount = parseInt(memberCountResult.rows[0]?.count || '0');
+        } catch (err: any) {
+          console.error('Error counting team members (table may not exist):', err.message);
+          memberCount = 0;
+        }
 
         // Get leader name if exists
         let leaderName = null;
         if (team.leaderId) {
-          const leaderResult = await pool.query(`
-            SELECT display_name
-            FROM users
-            WHERE id = $1
-          `, [team.leaderId]).catch(() => ({ rows: [] }));
-          leaderName = leaderResult.rows[0]?.display_name || null;
+          try {
+            const leaderResult = await pool.query(`
+              SELECT display_name
+              FROM users
+              WHERE id = $1
+            `, [team.leaderId]);
+            leaderName = leaderResult.rows[0]?.display_name || null;
+          } catch (err: any) {
+            console.error('Error fetching leader name:', err.message);
+            leaderName = null;
+          }
         }
 
         return {
           ...team,
-          memberCount: parseInt(memberCountResult.rows[0]?.count || '0'),
-          leaderName
+          memberCount,
+          leaderName,
+          activeProjects: 0 // Not available from current schema
         };
       })
     );
@@ -311,14 +349,19 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
     const membersWithDepartments = await Promise.all(
       result.rows.map(async (member) => {
         if (member.departmentId) {
-          const deptResult = await pool.query(`
-            SELECT name
-            FROM departments
-            WHERE id::text = $1 OR id = $1
-          `, [member.departmentId]).catch(() => ({ rows: [] }));
-          
-          if (deptResult.rows[0]) {
-            member.departmentName = deptResult.rows[0].name;
+          try {
+            const deptResult = await pool.query(`
+              SELECT name
+              FROM departments
+              WHERE id::text = $1 OR id::text = $1
+            `, [member.departmentId]);
+            
+            if (deptResult.rows[0]) {
+              member.departmentName = deptResult.rows[0].name;
+            }
+          } catch (err: any) {
+            console.error('Error fetching department name:', err.message);
+            // Keep existing departmentName if available
           }
         }
         return member;
@@ -380,14 +423,17 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, email, displayName, fullName, jobTitle, departmentId, role, password } = req.body;
 
-    if (!username || !email || !displayName || !password) {
-      res.status(400).json({ error: 'Username, email, displayName, and password are required' });
+    if (!username || !email || !displayName) {
+      res.status(400).json({ error: 'Username, email, and displayName are required' });
       return;
     }
+    
+    // Use default password if not provided
+    const userPassword = password || 'TempPassword123!';
 
     // Hash password (you should use bcrypt in production)
     const bcrypt = require('bcrypt');
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(userPassword, 10);
 
     const result = await pool.query(`
       INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department_id, role)

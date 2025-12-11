@@ -40,20 +40,21 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
     `);
 
     // Get all departments
+    // Note: specialty column may not exist in all database versions
     const departmentsResult = await pool.query(`
-      SELECT id, name, specialty, description, head_user_id
+      SELECT id, name, description, head_user_id
       FROM departments
       WHERE deleted_at IS NULL AND is_active = true
       ORDER BY name
     `);
 
-    // Get all teams with their specialties
+    // Get all teams
+    // Note: specialty column may not exist in all database versions
     const teamsResult = await pool.query(`
       SELECT 
         t.id, 
         t.name, 
         t.description, 
-        t.specialty, 
         t.department_id,
         t.leader_id,
         d.name as department_name

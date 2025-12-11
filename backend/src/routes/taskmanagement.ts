@@ -22,14 +22,20 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       FROM projects
       WHERE deleted_at IS NULL
       ORDER BY name
-    `);
+    `).catch((err) => {
+      console.error('Error fetching projects:', err);
+      return { rows: [] };
+    });
 
     // Get all project stages
     const stagesResult = await pool.query(`
       SELECT id, project_id, name, description, stage_order, status, progress
       FROM project_stages
       ORDER BY project_id, stage_order
-    `);
+    `).catch((err) => {
+      console.error('Error fetching project stages:', err);
+      return { rows: [] };
+    });
 
     // Get all missions
     const missionsResult = await pool.query(`
@@ -37,7 +43,10 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       FROM missions
       WHERE deleted_at IS NULL
       ORDER BY name
-    `);
+    `).catch((err) => {
+      console.error('Error fetching missions:', err);
+      return { rows: [] };
+    });
 
     // Get all departments
     // Note: specialty column may not exist in all database versions
@@ -46,7 +55,10 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       FROM departments
       WHERE deleted_at IS NULL AND is_active = true
       ORDER BY name
-    `);
+    `).catch((err) => {
+      console.error('Error fetching departments:', err);
+      return { rows: [] };
+    });
 
     // Get all teams
     // Note: specialty column may not exist in all database versions
@@ -62,7 +74,10 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       LEFT JOIN departments d ON t.department_id = d.id
       WHERE t.deleted_at IS NULL AND t.is_active = true
       ORDER BY t.name
-    `);
+    `).catch((err) => {
+      console.error('Error fetching teams:', err);
+      return { rows: [] };
+    });
 
     // Get team members
     const teamMembersResult = await pool.query(`
@@ -76,7 +91,10 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       FROM team_members tm
       JOIN users u ON tm.user_id = u.id
       WHERE u.deleted_at IS NULL
-    `);
+    `).catch((err) => {
+      console.error('Error fetching team members:', err);
+      return { rows: [] };
+    });
 
     // Get all users with their skills and roles
     const usersResult = await pool.query(`
@@ -93,14 +111,20 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       LEFT JOIN departments d ON u.department_id = d.id
       WHERE u.deleted_at IS NULL
       ORDER BY u.display_name
-    `);
+    `).catch((err) => {
+      console.error('Error fetching users:', err);
+      return { rows: [] };
+    });
 
     // Get user skills
     const skillsResult = await pool.query(`
       SELECT user_id, skill_name, skill_type, description
       FROM user_skills
       ORDER BY user_id, skill_name
-    `);
+    `).catch((err) => {
+      console.error('Error fetching user skills:', err);
+      return { rows: [] };
+    });
 
     // Get recent tasks for context (last 100)
     const tasksResult = await pool.query(`
@@ -125,7 +149,10 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       WHERE deleted_at IS NULL
       ORDER BY created_at DESC
       LIMIT 100
-    `);
+    `).catch((err) => {
+      console.error('Error fetching tasks:', err);
+      return { rows: [] };
+    });
 
     // Organize team members by team
     const teamMembersMap: { [teamId: string]: any[] } = {};

@@ -14,7 +14,8 @@ const router = express.Router();
  */
 router.get('/departments', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Try with color and deleted_at columns first, fallback without if they don't exist
+    // Simple query - departments table may not have deleted_at or color columns
+    // Use is_active filter, add default color if column doesn't exist
     let result;
     try {
       result = await pool.query(`
@@ -26,63 +27,24 @@ router.get('/departments', async (req: Request, res: Response): Promise<void> =>
           is_active,
           created_at as "createdAt"
         FROM departments
-        WHERE deleted_at IS NULL
+        WHERE is_active = true
         ORDER BY name
       `);
     } catch (err: any) {
-      // If deleted_at or color column doesn't exist, adjust query
-      if (err.code === '42703') {
-        if (err.message.includes('deleted_at')) {
-          // No deleted_at column, select all active departments
-          try {
-            result = await pool.query(`
-              SELECT 
-                id, 
-                name, 
-                description, 
-                COALESCE(color, '#3B82F6') as color,
-                is_active,
-                created_at as "createdAt"
-              FROM departments
-              WHERE is_active = true
-              ORDER BY name
-            `);
-          } catch (err2: any) {
-            // If color also doesn't exist
-            if (err2.code === '42703' && err2.message.includes('color')) {
-              result = await pool.query(`
-                SELECT 
-                  id, 
-                  name, 
-                  description, 
-                  '#3B82F6' as color,
-                  is_active,
-                  created_at as "createdAt"
-                FROM departments
-                WHERE is_active = true
-                ORDER BY name
-              `);
-            } else {
-              throw err2;
-            }
-          }
-        } else if (err.message.includes('color')) {
-          // Color doesn't exist but deleted_at does
-          result = await pool.query(`
-            SELECT 
-              id, 
-              name, 
-              description, 
-              '#3B82F6' as color,
-              is_active,
-              created_at as "createdAt"
-            FROM departments
-            WHERE deleted_at IS NULL
-            ORDER BY name
-          `);
-        } else {
-          throw err;
-        }
+      // If color column doesn't exist, select without it
+      if (err.code === '42703' && err.message.includes('color')) {
+        result = await pool.query(`
+          SELECT 
+            id, 
+            name, 
+            description, 
+            '#3B82F6' as color,
+            is_active,
+            created_at as "createdAt"
+          FROM departments
+          WHERE is_active = true
+          ORDER BY name
+        `);
       } else {
         throw err;
       }
@@ -91,50 +53,33 @@ router.get('/departments', async (req: Request, res: Response): Promise<void> =>
     // Get member counts and team counts for each department
     const departmentsWithCounts = await Promise.all(
       result.rows.map(async (dept) => {
-        // Count users in this department (handle both department_id and department column)
+        // Count users in this department - use department (VARCHAR) directly, no deleted_at
         let memberCount = 0;
         try {
-          // Try with department_id first
           const userCountResult = await pool.query(`
             SELECT COUNT(*) as count
             FROM users
-            WHERE (COALESCE(department_id::text, '') = $1 OR department = $2)
-              AND deleted_at IS NULL
-          `, [dept.id, dept.name]);
+            WHERE department = $1
+          `, [dept.name]);
           memberCount = parseInt(userCountResult.rows[0]?.count || '0');
         } catch (err: any) {
-          // If department_id doesn't exist, use department only
-          if (err.code === '42703' && err.message.includes('department_id')) {
-            try {
-              const userCountResult = await pool.query(`
-                SELECT COUNT(*) as count
-                FROM users
-                WHERE department = $1
-                  AND deleted_at IS NULL
-              `, [dept.name]);
-              memberCount = parseInt(userCountResult.rows[0]?.count || '0');
-            } catch (err2: any) {
-              console.error('Error counting users for department:', err2.message);
-              memberCount = 0;
-            }
-          } else {
-            console.error('Error counting users for department:', err.message);
-            memberCount = 0;
-          }
+          console.error('Error counting users for department:', err.message);
+          memberCount = 0;
         }
 
         // Count teams in this department (teams table may not exist)
         let teamCount = 0;
         try {
+          // Try with is_active first (no deleted_at)
           const teamCountResult = await pool.query(`
             SELECT COUNT(*) as count
             FROM teams
             WHERE department_id = $1
-              AND deleted_at IS NULL
               AND is_active = true
           `, [dept.id]);
           teamCount = parseInt(teamCountResult.rows[0]?.count || '0');
         } catch (err: any) {
+          // Table doesn't exist or other error
           console.error('Error counting teams for department (table may not exist):', err.message);
           teamCount = 0;
         }

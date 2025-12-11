@@ -444,136 +444,27 @@ router.delete('/teams/:id', async (req: Request, res: Response): Promise<void> =
  */
 router.get('/members', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Try with department_id and deleted_at first, fallback if they don't exist
-    let result;
-    try {
-      result = await pool.query(`
-        SELECT 
-          u.id,
-          u.username,
-          u.email,
-          u.display_name as "displayName",
-          u.full_name as "fullName",
-          u.job_title as "jobTitle",
-          COALESCE(u.department_id::text, u.department) as "departmentId",
-          u.department as "departmentName",
-          u.role,
-          u.language,
-          u.status,
-          u.avatar_url as "avatarUrl",
-          u.phone_number as "phoneNumber",
-          u.created_at as "createdAt"
-        FROM users u
-        WHERE u.deleted_at IS NULL
-        ORDER BY u.display_name
-      `);
-    } catch (err: any) {
-      // Handle missing columns
-      if (err.code === '42703') {
-        if (err.message.includes('deleted_at')) {
-          // deleted_at doesn't exist, try without it
-          try {
-            result = await pool.query(`
-              SELECT 
-                u.id,
-                u.username,
-                u.email,
-                u.display_name as "displayName",
-                u.full_name as "fullName",
-                u.job_title as "jobTitle",
-                COALESCE(u.department_id::text, u.department) as "departmentId",
-                u.department as "departmentName",
-                u.role,
-                u.language,
-                u.status,
-                u.avatar_url as "avatarUrl",
-                u.phone_number as "phoneNumber",
-                u.created_at as "createdAt"
-              FROM users u
-              ORDER BY u.display_name
-            `);
-          } catch (err2: any) {
-            // department_id also doesn't exist
-            if (err2.code === '42703' && err2.message.includes('department_id')) {
-              result = await pool.query(`
-                SELECT 
-                  u.id,
-                  u.username,
-                  u.email,
-                  u.display_name as "displayName",
-                  u.full_name as "fullName",
-                  u.job_title as "jobTitle",
-                  u.department as "departmentId",
-                  u.department as "departmentName",
-                  u.role,
-                  u.language,
-                  u.status,
-                  u.avatar_url as "avatarUrl",
-                  u.phone_number as "phoneNumber",
-                  u.created_at as "createdAt"
-                FROM users u
-                ORDER BY u.display_name
-              `);
-            } else {
-              throw err2;
-            }
-          }
-        } else if (err.message.includes('department_id')) {
-          // department_id doesn't exist, try with department but handle deleted_at too
-          try {
-            result = await pool.query(`
-              SELECT 
-                u.id,
-                u.username,
-                u.email,
-                u.display_name as "displayName",
-                u.full_name as "fullName",
-                u.job_title as "jobTitle",
-                u.department as "departmentId",
-                u.department as "departmentName",
-                u.role,
-                u.language,
-                u.status,
-                u.avatar_url as "avatarUrl",
-                u.phone_number as "phoneNumber",
-                u.created_at as "createdAt"
-              FROM users u
-              WHERE u.deleted_at IS NULL
-              ORDER BY u.display_name
-            `);
-          } catch (err2: any) {
-            // deleted_at also doesn't exist
-            if (err2.code === '42703' && err2.message.includes('deleted_at')) {
-              result = await pool.query(`
-                SELECT 
-                  u.id,
-                  u.username,
-                  u.email,
-                  u.display_name as "displayName",
-                  u.full_name as "fullName",
-                  u.job_title as "jobTitle",
-                  u.department as "departmentId",
-                  u.department as "departmentName",
-                  u.role,
-                  u.language,
-                  u.status,
-                  u.avatar_url as "avatarUrl",
-                  u.phone_number as "phoneNumber",
-                  u.created_at as "createdAt"
-                FROM users u
-                ORDER BY u.display_name
-              `);
-            } else {
-              throw err2;
-            }
-          }
-        } else {
-          throw err;
-        }
-      } else {
-        throw err;
-      }
-    }
+    // Simple query - users table doesn't have deleted_at or department_id columns
+    // Use department (VARCHAR) directly, no deleted_at filter
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.email,
+        u.display_name as "displayName",
+        u.full_name as "fullName",
+        u.job_title as "jobTitle",
+        u.department as "departmentId",
+        u.department as "departmentName",
+        u.role,
+        u.language,
+        u.status,
+        u.avatar_url as "avatarUrl",
+        u.phone_number as "phoneNumber",
+        u.created_at as "createdAt"
+      FROM users u
+      ORDER BY u.display_name
+    `);
 
     // Get department names for users with department_id
     const membersWithDepartments = await Promise.all(
@@ -613,134 +504,26 @@ router.get('/members/:id', async (req: Request, res: Response): Promise<void> =>
   try {
     const { id } = req.params;
 
-    // Try with department_id and deleted_at first, fallback if they don't exist
-    let result;
-    try {
-      result = await pool.query(`
-        SELECT 
-          u.id,
-          u.username,
-          u.email,
-          u.display_name as "displayName",
-          u.full_name as "fullName",
-          u.job_title as "jobTitle",
-          COALESCE(u.department_id::text, u.department) as "departmentId",
-          u.department as "departmentName",
-          u.role,
-          u.language,
-          u.status,
-          u.avatar_url as "avatarUrl",
-          u.phone_number as "phoneNumber",
-          u.created_at as "createdAt"
-        FROM users u
-        WHERE u.id = $1 AND u.deleted_at IS NULL
-      `, [id]);
-    } catch (err: any) {
-      // Handle missing columns
-      if (err.code === '42703') {
-        if (err.message.includes('deleted_at')) {
-          // deleted_at doesn't exist, try without it
-          try {
-            result = await pool.query(`
-              SELECT 
-                u.id,
-                u.username,
-                u.email,
-                u.display_name as "displayName",
-                u.full_name as "fullName",
-                u.job_title as "jobTitle",
-                COALESCE(u.department_id::text, u.department) as "departmentId",
-                u.department as "departmentName",
-                u.role,
-                u.language,
-                u.status,
-                u.avatar_url as "avatarUrl",
-                u.phone_number as "phoneNumber",
-                u.created_at as "createdAt"
-              FROM users u
-              WHERE u.id = $1
-            `, [id]);
-          } catch (err2: any) {
-            // department_id also doesn't exist
-            if (err2.code === '42703' && err2.message.includes('department_id')) {
-              result = await pool.query(`
-                SELECT 
-                  u.id,
-                  u.username,
-                  u.email,
-                  u.display_name as "displayName",
-                  u.full_name as "fullName",
-                  u.job_title as "jobTitle",
-                  u.department as "departmentId",
-                  u.department as "departmentName",
-                  u.role,
-                  u.language,
-                  u.status,
-                  u.avatar_url as "avatarUrl",
-                  u.phone_number as "phoneNumber",
-                  u.created_at as "createdAt"
-                FROM users u
-                WHERE u.id = $1
-              `, [id]);
-            } else {
-              throw err2;
-            }
-          }
-        } else if (err.message.includes('department_id')) {
-          // department_id doesn't exist, try with department but handle deleted_at too
-          try {
-            result = await pool.query(`
-              SELECT 
-                u.id,
-                u.username,
-                u.email,
-                u.display_name as "displayName",
-                u.full_name as "fullName",
-                u.job_title as "jobTitle",
-                u.department as "departmentId",
-                u.department as "departmentName",
-                u.role,
-                u.language,
-                u.status,
-                u.avatar_url as "avatarUrl",
-                u.phone_number as "phoneNumber",
-                u.created_at as "createdAt"
-              FROM users u
-              WHERE u.id = $1 AND u.deleted_at IS NULL
-            `, [id]);
-          } catch (err2: any) {
-            // deleted_at also doesn't exist
-            if (err2.code === '42703' && err2.message.includes('deleted_at')) {
-              result = await pool.query(`
-                SELECT 
-                  u.id,
-                  u.username,
-                  u.email,
-                  u.display_name as "displayName",
-                  u.full_name as "fullName",
-                  u.job_title as "jobTitle",
-                  u.department as "departmentId",
-                  u.department as "departmentName",
-                  u.role,
-                  u.language,
-                  u.status,
-                  u.avatar_url as "avatarUrl",
-                  u.phone_number as "phoneNumber",
-                  u.created_at as "createdAt"
-                FROM users u
-                WHERE u.id = $1
-              `, [id]);
-            } else {
-              throw err2;
-            }
-          }
-        } else {
-          throw err;
-        }
-      } else {
-        throw err;
-      }
-    }
+    // Simple query - users table doesn't have deleted_at or department_id columns
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.email,
+        u.display_name as "displayName",
+        u.full_name as "fullName",
+        u.job_title as "jobTitle",
+        u.department as "departmentId",
+        u.department as "departmentName",
+        u.role,
+        u.language,
+        u.status,
+        u.avatar_url as "avatarUrl",
+        u.phone_number as "phoneNumber",
+        u.created_at as "createdAt"
+      FROM users u
+      WHERE u.id = $1
+    `, [id]);
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Member not found' });

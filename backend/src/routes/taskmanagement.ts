@@ -38,85 +38,271 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
     });
 
     // Get all missions
-    const missionsResult = await pool.query(`
-      SELECT id, name, description, project_id, stage_id, status, priority, progress
-      FROM missions
-      WHERE deleted_at IS NULL
-      ORDER BY name
-    `).catch((err) => {
-      console.error('Error fetching missions:', err);
-      return { rows: [] };
-    });
+    // Try with deleted_at first, fallback without if column doesn't exist
+    let missionsResult;
+    try {
+      missionsResult = await pool.query(`
+        SELECT id, name, description, project_id, stage_id, status, priority, progress
+        FROM missions
+        WHERE deleted_at IS NULL
+        ORDER BY name
+      `);
+    } catch (err: any) {
+      if (err.code === '42703' && err.message.includes('deleted_at')) {
+        // deleted_at doesn't exist, select all
+        missionsResult = await pool.query(`
+          SELECT id, name, description, project_id, stage_id, status, priority, progress
+          FROM missions
+          ORDER BY name
+        `);
+      } else {
+        console.error('Error fetching missions:', err);
+        missionsResult = { rows: [] };
+      }
+    }
 
     // Get all departments
     // Note: columns may not exist in all database versions
-    const departmentsResult = await pool.query(`
-      SELECT id, name, description
-      FROM departments
-      WHERE deleted_at IS NULL AND is_active = true
-      ORDER BY name
-    `).catch((err) => {
-      console.error('Error fetching departments:', err);
-      return { rows: [] };
-    });
+    // Try with deleted_at first, fallback without if column doesn't exist
+    let departmentsResult;
+    try {
+      departmentsResult = await pool.query(`
+        SELECT id, name, description
+        FROM departments
+        WHERE deleted_at IS NULL AND is_active = true
+        ORDER BY name
+      `);
+    } catch (err: any) {
+      if (err.code === '42703' && err.message.includes('deleted_at')) {
+        // deleted_at doesn't exist, try with is_active only
+        try {
+          departmentsResult = await pool.query(`
+            SELECT id, name, description
+            FROM departments
+            WHERE is_active = true
+            ORDER BY name
+          `);
+        } catch (err2: any) {
+          // If is_active also doesn't exist, select all
+          if (err2.code === '42703' && err2.message.includes('is_active')) {
+            departmentsResult = await pool.query(`
+              SELECT id, name, description
+              FROM departments
+              ORDER BY name
+            `);
+          } else {
+            console.error('Error fetching departments:', err2);
+            departmentsResult = { rows: [] };
+          }
+        }
+      } else {
+        console.error('Error fetching departments:', err);
+        departmentsResult = { rows: [] };
+      }
+    }
 
     // Get all teams
     // Note: teams table may not exist in all database versions
-    const teamsResult = await pool.query(`
-      SELECT 
-        t.id, 
-        t.name, 
-        t.description, 
-        t.department_id,
-        t.leader_id,
-        d.name as department_name
-      FROM teams t
-      LEFT JOIN departments d ON t.department_id = d.id
-      WHERE t.deleted_at IS NULL AND t.is_active = true
-      ORDER BY t.name
-    `).catch((err) => {
-      console.error('Error fetching teams (table may not exist):', err.message);
-      return { rows: [] };
-    });
+    let teamsResult;
+    try {
+      teamsResult = await pool.query(`
+        SELECT 
+          t.id, 
+          t.name, 
+          t.description, 
+          t.department_id,
+          t.leader_id,
+          d.name as department_name
+        FROM teams t
+        LEFT JOIN departments d ON t.department_id = d.id
+        WHERE t.deleted_at IS NULL AND t.is_active = true
+        ORDER BY t.name
+      `);
+    } catch (err: any) {
+      if (err.code === '42703' && err.message.includes('deleted_at')) {
+        // deleted_at doesn't exist, try with is_active only
+        try {
+          teamsResult = await pool.query(`
+            SELECT 
+              t.id, 
+              t.name, 
+              t.description, 
+              t.department_id,
+              t.leader_id,
+              d.name as department_name
+            FROM teams t
+            LEFT JOIN departments d ON t.department_id = d.id
+            WHERE t.is_active = true
+            ORDER BY t.name
+          `);
+        } catch (err2: any) {
+          // If is_active also doesn't exist or table doesn't exist, return empty
+          console.error('Error fetching teams (table may not exist):', err2.message);
+          teamsResult = { rows: [] };
+        }
+      } else if (err.code === '42P01') {
+        // Table doesn't exist
+        console.error('Error fetching teams (table may not exist):', err.message);
+        teamsResult = { rows: [] };
+      } else {
+        console.error('Error fetching teams:', err);
+        teamsResult = { rows: [] };
+      }
+    }
 
     // Get team members
     // Note: team_members table may not exist in all database versions
-    const teamMembersResult = await pool.query(`
-      SELECT 
-        tm.team_id,
-        tm.user_id,
-        tm.role_in_team,
-        u.display_name,
-        u.job_title,
-        COALESCE(u.department_id::text, u.department) as department_id
-      FROM team_members tm
-      JOIN users u ON tm.user_id = u.id
-      WHERE u.deleted_at IS NULL
-    `).catch((err) => {
-      console.error('Error fetching team members (table may not exist):', err.message);
-      return { rows: [] };
-    });
+    let teamMembersResult;
+    try {
+      teamMembersResult = await pool.query(`
+        SELECT 
+          tm.team_id,
+          tm.user_id,
+          tm.role_in_team,
+          u.display_name,
+          u.job_title,
+          COALESCE(u.department_id::text, u.department) as department_id
+        FROM team_members tm
+        JOIN users u ON tm.user_id = u.id
+        WHERE u.deleted_at IS NULL
+      `);
+    } catch (err: any) {
+      if (err.code === '42703' && err.message.includes('deleted_at')) {
+        // deleted_at doesn't exist, try without it
+        try {
+          teamMembersResult = await pool.query(`
+            SELECT 
+              tm.team_id,
+              tm.user_id,
+              tm.role_in_team,
+              u.display_name,
+              u.job_title,
+              COALESCE(u.department_id::text, u.department) as department_id
+            FROM team_members tm
+            JOIN users u ON tm.user_id = u.id
+          `);
+        } catch (err2: any) {
+          // If department_id also doesn't exist or table doesn't exist
+          if (err2.code === '42703' && err2.message.includes('department_id')) {
+            try {
+              teamMembersResult = await pool.query(`
+                SELECT 
+                  tm.team_id,
+                  tm.user_id,
+                  tm.role_in_team,
+                  u.display_name,
+                  u.job_title,
+                  u.department as department_id
+                FROM team_members tm
+                JOIN users u ON tm.user_id = u.id
+              `);
+            } catch (err3: any) {
+              console.error('Error fetching team members (table may not exist):', err3.message);
+              teamMembersResult = { rows: [] };
+            }
+          } else if (err2.code === '42P01') {
+            console.error('Error fetching team members (table may not exist):', err2.message);
+            teamMembersResult = { rows: [] };
+          } else {
+            console.error('Error fetching team members:', err2);
+            teamMembersResult = { rows: [] };
+          }
+        }
+      } else if (err.code === '42P01') {
+        console.error('Error fetching team members (table may not exist):', err.message);
+        teamMembersResult = { rows: [] };
+      } else {
+        console.error('Error fetching team members:', err);
+        teamMembersResult = { rows: [] };
+      }
+    }
 
     // Get all users with their skills and roles
     // Note: users table may use department (VARCHAR) instead of department_id (UUID)
-    const usersResult = await pool.query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.display_name,
-        u.job_title,
-        COALESCE(u.department_id::text, u.department) as department_id,
-        u.role,
-        u.language,
-        COALESCE(d.name, u.department) as department_name
-      FROM users u
-      LEFT JOIN departments d ON COALESCE(u.department_id::text, u.department) = d.id::text OR u.department = d.name
-      WHERE u.deleted_at IS NULL
-      ORDER BY u.display_name
-    `).catch((err) => {
-      console.error('Error fetching users:', err.message);
-      return { rows: [] };
-    });
+    let usersResult;
+    try {
+      usersResult = await pool.query(`
+        SELECT 
+          u.id,
+          u.username,
+          u.display_name,
+          u.job_title,
+          COALESCE(u.department_id::text, u.department) as department_id,
+          u.role,
+          u.language,
+          COALESCE(d.name, u.department) as department_name
+        FROM users u
+        LEFT JOIN departments d ON COALESCE(u.department_id::text, u.department) = d.id::text OR u.department = d.name
+        WHERE u.deleted_at IS NULL
+        ORDER BY u.display_name
+      `);
+    } catch (err: any) {
+      if (err.code === '42703') {
+        if (err.message.includes('deleted_at')) {
+          // deleted_at doesn't exist, try without it
+          try {
+            usersResult = await pool.query(`
+              SELECT 
+                u.id,
+                u.username,
+                u.display_name,
+                u.job_title,
+                COALESCE(u.department_id::text, u.department) as department_id,
+                u.role,
+                u.language,
+                COALESCE(d.name, u.department) as department_name
+              FROM users u
+              LEFT JOIN departments d ON COALESCE(u.department_id::text, u.department) = d.id::text OR u.department = d.name
+              ORDER BY u.display_name
+            `);
+          } catch (err2: any) {
+            // department_id also doesn't exist
+            if (err2.code === '42703' && err2.message.includes('department_id')) {
+              usersResult = await pool.query(`
+                SELECT 
+                  u.id,
+                  u.username,
+                  u.display_name,
+                  u.job_title,
+                  u.department as department_id,
+                  u.role,
+                  u.language,
+                  COALESCE(d.name, u.department) as department_name
+                FROM users u
+                LEFT JOIN departments d ON u.department = d.name
+                ORDER BY u.display_name
+              `);
+            } else {
+              console.error('Error fetching users:', err2.message);
+              usersResult = { rows: [] };
+            }
+          }
+        } else if (err.message.includes('department_id')) {
+          // department_id doesn't exist but deleted_at does
+          usersResult = await pool.query(`
+            SELECT 
+              u.id,
+              u.username,
+              u.display_name,
+              u.job_title,
+              u.department as department_id,
+              u.role,
+              u.language,
+              COALESCE(d.name, u.department) as department_name
+            FROM users u
+            LEFT JOIN departments d ON u.department = d.name
+            WHERE u.deleted_at IS NULL
+            ORDER BY u.display_name
+          `);
+        } else {
+          console.error('Error fetching users:', err.message);
+          usersResult = { rows: [] };
+        }
+      } else {
+        console.error('Error fetching users:', err.message);
+        usersResult = { rows: [] };
+      }
+    }
 
     // Get user skills
     // Note: user_skills table may not exist in all database versions

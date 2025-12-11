@@ -49,9 +49,9 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
     });
 
     // Get all departments
-    // Note: specialty column may not exist in all database versions
+    // Note: columns may not exist in all database versions
     const departmentsResult = await pool.query(`
-      SELECT id, name, description, head_user_id
+      SELECT id, name, description
       FROM departments
       WHERE deleted_at IS NULL AND is_active = true
       ORDER BY name
@@ -61,7 +61,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
     });
 
     // Get all teams
-    // Note: specialty column may not exist in all database versions
+    // Note: teams table may not exist in all database versions
     const teamsResult = await pool.query(`
       SELECT 
         t.id, 
@@ -75,11 +75,12 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       WHERE t.deleted_at IS NULL AND t.is_active = true
       ORDER BY t.name
     `).catch((err) => {
-      console.error('Error fetching teams:', err);
+      console.error('Error fetching teams (table may not exist):', err.message);
       return { rows: [] };
     });
 
     // Get team members
+    // Note: team_members table may not exist in all database versions
     const teamMembersResult = await pool.query(`
       SELECT 
         tm.team_id,
@@ -87,42 +88,44 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
         tm.role_in_team,
         u.display_name,
         u.job_title,
-        u.department_id
+        COALESCE(u.department_id::text, u.department) as department_id
       FROM team_members tm
       JOIN users u ON tm.user_id = u.id
       WHERE u.deleted_at IS NULL
     `).catch((err) => {
-      console.error('Error fetching team members:', err);
+      console.error('Error fetching team members (table may not exist):', err.message);
       return { rows: [] };
     });
 
     // Get all users with their skills and roles
+    // Note: users table may use department (VARCHAR) instead of department_id (UUID)
     const usersResult = await pool.query(`
       SELECT 
         u.id,
         u.username,
         u.display_name,
         u.job_title,
-        u.department_id,
+        COALESCE(u.department_id::text, u.department) as department_id,
         u.role,
         u.language,
-        d.name as department_name
+        COALESCE(d.name, u.department) as department_name
       FROM users u
-      LEFT JOIN departments d ON u.department_id = d.id
+      LEFT JOIN departments d ON COALESCE(u.department_id::text, u.department) = d.id::text OR u.department = d.name
       WHERE u.deleted_at IS NULL
       ORDER BY u.display_name
     `).catch((err) => {
-      console.error('Error fetching users:', err);
+      console.error('Error fetching users:', err.message);
       return { rows: [] };
     });
 
     // Get user skills
+    // Note: user_skills table may not exist in all database versions
     const skillsResult = await pool.query(`
       SELECT user_id, skill_name, skill_type, description
       FROM user_skills
       ORDER BY user_id, skill_name
     `).catch((err) => {
-      console.error('Error fetching user skills:', err);
+      console.error('Error fetching user skills (table may not exist):', err.message);
       return { rows: [] };
     });
 

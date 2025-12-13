@@ -253,21 +253,24 @@ router.get('/teams', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Get member counts for each team
+    // Get member counts and member IDs for each team
     const teamsWithCounts = await Promise.all(
       result.rows.map(async (team) => {
-        // Count team members (team_members table may not exist)
+        // Get team members (team_members table may not exist)
         let memberCount = 0;
+        let memberIds: string[] = [];
         try {
-          const memberCountResult = await pool.query(`
-            SELECT COUNT(*) as count
+          const memberResult = await pool.query(`
+            SELECT user_id
             FROM team_members
             WHERE team_id = $1
           `, [team.id]);
-          memberCount = parseInt(memberCountResult.rows[0]?.count || '0');
+          memberIds = memberResult.rows.map((row: any) => String(row.user_id));
+          memberCount = memberIds.length;
         } catch (err: any) {
-          console.error('Error counting team members (table may not exist):', err.message);
+          console.error('Error fetching team members (table may not exist):', err.message);
           memberCount = 0;
+          memberIds = [];
         }
 
         // Get leader name if exists
@@ -289,6 +292,7 @@ router.get('/teams', async (req: Request, res: Response): Promise<void> => {
         return {
           ...team,
           memberCount,
+          memberIds,
           leaderName,
           activeProjects: 0 // Not available from current schema
         };
@@ -411,15 +415,16 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
       ORDER BY u.display_name
     `);
 
-    // Get department names for users with department_id
+    // Get team information for each member and department names
     const membersWithDepartments = await Promise.all(
       result.rows.map(async (member) => {
+        // Get department name if departmentId exists
         if (member.departmentId) {
           try {
             const deptResult = await pool.query(`
               SELECT name
               FROM departments
-              WHERE id::text = $1 OR id::text = $1
+              WHERE id::text = $1 OR name = $1
             `, [member.departmentId]);
             
             if (deptResult.rows[0]) {
@@ -430,7 +435,29 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
             // Keep existing departmentName if available
           }
         }
-        return member;
+
+        // Get team ID for this member (if they're in a team)
+        let teamId = null;
+        try {
+          const teamResult = await pool.query(`
+            SELECT team_id
+            FROM team_members
+            WHERE user_id = $1
+            LIMIT 1
+          `, [member.id]);
+          
+          if (teamResult.rows[0]) {
+            teamId = String(teamResult.rows[0].team_id);
+          }
+        } catch (err: any) {
+          // team_members table may not exist, that's okay
+          teamId = null;
+        }
+
+        return {
+          ...member,
+          teamId
+        };
       })
     );
 

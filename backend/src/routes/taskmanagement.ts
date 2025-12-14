@@ -158,7 +158,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
         SELECT 
           tm.team_id,
           tm.user_id,
-          tm.role_in_team,
+          COALESCE(tm.role_in_team, tm.role, 'member') as role_in_team,
           u.display_name,
           u.job_title,
           COALESCE(u.department_id::text, u.department) as department_id
@@ -174,7 +174,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
             SELECT 
               tm.team_id,
               tm.user_id,
-              tm.role_in_team,
+              COALESCE(tm.role_in_team, tm.role, 'member') as role_in_team,
               u.display_name,
               u.job_title,
               COALESCE(u.department_id::text, u.department) as department_id
@@ -189,7 +189,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
                 SELECT 
                   tm.team_id,
                   tm.user_id,
-                  tm.role_in_team,
+                  COALESCE(tm.role_in_team, tm.role, 'member') as role_in_team,
                   u.display_name,
                   u.job_title,
                   u.department as department_id
@@ -197,7 +197,45 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
                 JOIN users u ON tm.user_id = u.id
               `);
             } catch (err3: any) {
-              console.error('Error fetching team members (table may not exist):', err3.message);
+              // If role_in_team column doesn't exist, try with just role
+              if (err3.code === '42703' && err3.message.includes('role_in_team')) {
+                try {
+                  teamMembersResult = await pool.query(`
+                    SELECT 
+                      tm.team_id,
+                      tm.user_id,
+                      COALESCE(tm.role, 'member') as role_in_team,
+                      u.display_name,
+                      u.job_title,
+                      u.department as department_id
+                    FROM team_members tm
+                    JOIN users u ON tm.user_id = u.id
+                  `);
+                } catch (err4: any) {
+                  console.error('Error fetching team members (table may not exist):', err4.message);
+                  teamMembersResult = { rows: [] };
+                }
+              } else {
+                console.error('Error fetching team members (table may not exist):', err3.message);
+                teamMembersResult = { rows: [] };
+              }
+            }
+          } else if (err2.code === '42703' && err2.message.includes('role_in_team')) {
+            // role_in_team doesn't exist, try with role column
+            try {
+              teamMembersResult = await pool.query(`
+                SELECT 
+                  tm.team_id,
+                  tm.user_id,
+                  COALESCE(tm.role, 'member') as role_in_team,
+                  u.display_name,
+                  u.job_title,
+                  COALESCE(u.department_id::text, u.department) as department_id
+                FROM team_members tm
+                JOIN users u ON tm.user_id = u.id
+              `);
+            } catch (err3: any) {
+              console.error('Error fetching team members:', err3.message);
               teamMembersResult = { rows: [] };
             }
           } else if (err2.code === '42P01') {
@@ -205,6 +243,45 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
             teamMembersResult = { rows: [] };
           } else {
             console.error('Error fetching team members:', err2);
+            teamMembersResult = { rows: [] };
+          }
+        }
+      } else if (err.code === '42703' && err.message.includes('role_in_team')) {
+        // role_in_team doesn't exist, try with role column
+        try {
+          teamMembersResult = await pool.query(`
+            SELECT 
+              tm.team_id,
+              tm.user_id,
+              COALESCE(tm.role, 'member') as role_in_team,
+              u.display_name,
+              u.job_title,
+              COALESCE(u.department_id::text, u.department) as department_id
+            FROM team_members tm
+            JOIN users u ON tm.user_id = u.id
+            WHERE u.deleted_at IS NULL
+          `);
+        } catch (err2: any) {
+          if (err2.code === '42703' && err2.message.includes('deleted_at')) {
+            // Try without deleted_at
+            try {
+              teamMembersResult = await pool.query(`
+                SELECT 
+                  tm.team_id,
+                  tm.user_id,
+                  COALESCE(tm.role, 'member') as role_in_team,
+                  u.display_name,
+                  u.job_title,
+                  COALESCE(u.department_id::text, u.department) as department_id
+                FROM team_members tm
+                JOIN users u ON tm.user_id = u.id
+              `);
+            } catch (err3: any) {
+              console.error('Error fetching team members:', err3.message);
+              teamMembersResult = { rows: [] };
+            }
+          } else {
+            console.error('Error fetching team members:', err2.message);
             teamMembersResult = { rows: [] };
           }
         }
@@ -329,14 +406,31 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
 
     // Get user skills
     // Note: user_skills table may not exist in all database versions
-    const skillsResult = await pool.query(`
-      SELECT user_id, skill_name, skill_type, description
-      FROM user_skills
-      ORDER BY user_id, skill_name
-    `).catch((err) => {
-      console.error('Error fetching user skills (table may not exist):', err.message);
-      return { rows: [] };
-    });
+    let skillsResult;
+    try {
+      skillsResult = await pool.query(`
+        SELECT user_id, skill_name, COALESCE(skill_type, 'skill') as skill_type, description
+        FROM user_skills
+        ORDER BY user_id, skill_name
+      `);
+    } catch (err: any) {
+      if (err.code === '42703' && err.message.includes('skill_type')) {
+        // skill_type doesn't exist, try without it
+        try {
+          skillsResult = await pool.query(`
+            SELECT user_id, skill_name, 'skill' as skill_type, description
+            FROM user_skills
+            ORDER BY user_id, skill_name
+          `);
+        } catch (err2: any) {
+          console.error('Error fetching user skills (table may not exist):', err2.message);
+          skillsResult = { rows: [] };
+        }
+      } else {
+        console.error('Error fetching user skills (table may not exist):', err.message);
+        skillsResult = { rows: [] };
+      }
+    }
 
     // Get recent tasks for context (last 100)
     const tasksResult = await pool.query(`

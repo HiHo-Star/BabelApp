@@ -817,8 +817,8 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
     // Use default password if not provided
     const userPassword = password || 'TempPassword123!';
 
-    // Hash password (you should use bcrypt in production)
-    const bcrypt = require('bcrypt');
+    // Hash password using bcryptjs
+    const bcrypt = require('bcryptjs');
     const passwordHash = await bcrypt.hash(userPassword, 10);
 
     // Try inserting with department_id, fallback to department if it doesn't exist

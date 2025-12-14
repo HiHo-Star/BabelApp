@@ -161,7 +161,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
           COALESCE(tm.role_in_team, tm.role, 'member') as role_in_team,
           u.display_name,
           u.job_title,
-          COALESCE(u.department_id::text, u.department) as department_id
+          u.department as department_id
         FROM team_members tm
         JOIN users u ON tm.user_id = u.id
         WHERE u.deleted_at IS NULL
@@ -177,7 +177,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
               COALESCE(tm.role_in_team, tm.role, 'member') as role_in_team,
               u.display_name,
               u.job_title,
-              COALESCE(u.department_id::text, u.department) as department_id
+              u.department as department_id
             FROM team_members tm
             JOIN users u ON tm.user_id = u.id
           `);
@@ -230,7 +230,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
                   COALESCE(tm.role, 'member') as role_in_team,
                   u.display_name,
                   u.job_title,
-                  COALESCE(u.department_id::text, u.department) as department_id
+                  u.department as department_id
                 FROM team_members tm
                 JOIN users u ON tm.user_id = u.id
               `);
@@ -256,7 +256,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
               COALESCE(tm.role, 'member') as role_in_team,
               u.display_name,
               u.job_title,
-              COALESCE(u.department_id::text, u.department) as department_id
+              u.department as department_id
             FROM team_members tm
             JOIN users u ON tm.user_id = u.id
             WHERE u.deleted_at IS NULL
@@ -272,7 +272,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
                   COALESCE(tm.role, 'member') as role_in_team,
                   u.display_name,
                   u.job_title,
-                  COALESCE(u.department_id::text, u.department) as department_id
+                  u.department as department_id
                 FROM team_members tm
                 JOIN users u ON tm.user_id = u.id
               `);
@@ -304,12 +304,12 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
           u.username,
           u.display_name,
           u.job_title,
-          COALESCE(u.department_id::text, u.department) as department_id,
+          u.department as department_id,
           u.role,
           u.language,
           COALESCE(d.name, u.department) as department_name
         FROM users u
-        LEFT JOIN departments d ON COALESCE(u.department_id::text, u.department) = d.id::text OR u.department = d.name
+        LEFT JOIN departments d ON u.department = d.name
         WHERE u.deleted_at IS NULL
         ORDER BY u.display_name
       `);
@@ -324,12 +324,12 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
                 u.username,
                 u.display_name,
                 u.job_title,
-                COALESCE(u.department_id::text, u.department) as department_id,
+                u.department as department_id,
                 u.role,
                 u.language,
                 COALESCE(d.name, u.department) as department_name
               FROM users u
-              LEFT JOIN departments d ON COALESCE(u.department_id::text, u.department) = d.id::text OR u.department = d.name
+              LEFT JOIN departments d ON u.department = d.name
               ORDER BY u.display_name
             `);
           } catch (err2: any) {
@@ -409,7 +409,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
     let skillsResult;
     try {
       skillsResult = await pool.query(`
-        SELECT user_id, skill_name, COALESCE(skill_type, 'skill') as skill_type, description
+        SELECT user_id, skill_name, COALESCE(skill_type, 'skill') as skill_type
         FROM user_skills
         ORDER BY user_id, skill_name
       `);
@@ -418,7 +418,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
         // skill_type doesn't exist, try without it
         try {
           skillsResult = await pool.query(`
-            SELECT user_id, skill_name, 'skill' as skill_type, description
+            SELECT user_id, skill_name, 'skill' as skill_type
             FROM user_skills
             ORDER BY user_id, skill_name
           `);
@@ -483,8 +483,7 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
       }
       skillsMap[skill.user_id].push({
         name: skill.skill_name,
-        type: skill.skill_type,
-        description: skill.description
+        type: skill.skill_type
       });
     });
 

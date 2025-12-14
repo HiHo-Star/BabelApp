@@ -889,6 +889,8 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
   try {
     const { id } = req.params;
     const { displayName, fullName, jobTitle, departmentId, teamId, role, status, language } = req.body;
+    
+    console.log(`📝 Updating member ${id}:`, { displayName, teamId, departmentId });
 
     // Try updating with department_id, fallback to department if it doesn't exist
     let result;
@@ -944,34 +946,35 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
     }
 
     // Handle team assignment if teamId is provided
-    if (teamId !== undefined) {
+    // teamId can be: undefined (not provided), empty string "" (no team), or UUID (team selected)
+    if (teamId !== undefined && teamId !== null) {
       try {
-        if (teamId) {
-          // Remove user from any existing teams first
-          await pool.query(`
-            DELETE FROM team_members
-            WHERE user_id = $1
-          `, [id]);
+        // Remove user from any existing teams first
+        await pool.query(`
+          DELETE FROM team_members
+          WHERE user_id = $1
+        `, [id]);
 
+        if (teamId && teamId.trim() !== '') {
           // Add user to the specified team
-          await pool.query(`
+          const insertResult = await pool.query(`
             INSERT INTO team_members (team_id, user_id, role)
             VALUES ($1, $2, 'member')
             ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
+            RETURNING *
           `, [teamId, id]);
-          console.log(`✅ User ${id} assigned to team ${teamId}`);
+          console.log(`✅ User ${id} assigned to team ${teamId}`, insertResult.rows[0]);
         } else {
-          // teamId is empty string/null - remove from all teams
-          await pool.query(`
-            DELETE FROM team_members
-            WHERE user_id = $1
-          `, [id]);
+          // teamId is empty string - remove from all teams (already deleted above)
           console.log(`✅ User ${id} removed from all teams`);
         }
       } catch (teamErr: any) {
-        console.error('Error updating team assignment (team_members table may not exist):', teamErr.message);
-        // Don't fail the whole request if team assignment fails
+        console.error('❌ Error updating team assignment:', teamErr.message);
+        console.error('Error details:', teamErr);
+        // Don't fail the whole request if team assignment fails, but log it
       }
+    } else {
+      console.log(`ℹ️  teamId not provided (undefined/null) for user ${id}, skipping team assignment`);
     }
 
     res.json(result.rows[0]);

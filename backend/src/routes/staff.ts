@@ -471,12 +471,54 @@ router.get('/teams', async (req: Request, res: Response): Promise<void> => {
           }
         }
 
+        // Get project count from project_teams table
+        let activeProjects = 0;
+        let projectCount = 0;
+        try {
+          // Try query with deleted_at filter first
+          let projectResult;
+          try {
+            projectResult = await pool.query(`
+              SELECT COUNT(DISTINCT pt.project_id) as total_projects,
+                     COUNT(DISTINCT CASE WHEN p.status IN ('planning', 'active', 'on-hold') THEN pt.project_id END) as active_projects
+              FROM project_teams pt
+              LEFT JOIN projects p ON pt.project_id = p.id
+              WHERE pt.team_id = $1
+                AND (p.deleted_at IS NULL)
+            `, [team.id]);
+          } catch (err: any) {
+            // If deleted_at doesn't exist, try without it
+            if (err.code === '42703' && err.message.includes('deleted_at')) {
+              projectResult = await pool.query(`
+                SELECT COUNT(DISTINCT pt.project_id) as total_projects,
+                       COUNT(DISTINCT CASE WHEN p.status IN ('planning', 'active', 'on-hold') THEN pt.project_id END) as active_projects
+                FROM project_teams pt
+                LEFT JOIN projects p ON pt.project_id = p.id
+                WHERE pt.team_id = $1
+              `, [team.id]);
+            } else {
+              throw err;
+            }
+          }
+          
+          if (projectResult.rows[0]) {
+            projectCount = parseInt(projectResult.rows[0].total_projects || '0');
+            activeProjects = parseInt(projectResult.rows[0].active_projects || '0');
+          }
+        } catch (err: any) {
+          // project_teams table may not exist, that's okay
+          console.log(`Error fetching projects for team ${team.name} (project_teams table may not exist):`, err.message);
+          projectCount = 0;
+          activeProjects = 0;
+        }
+
         return {
           ...team,
           memberCount,
           memberIds,
           leaderName,
-          activeProjects: 0 // Not available from current schema
+          activeProjects,
+          projectCount // Total projects (including completed)
         };
       })
     );

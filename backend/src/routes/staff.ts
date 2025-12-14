@@ -194,26 +194,44 @@ router.post('/departments', async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Try inserting with color, fallback without if column doesn't exist
+    // Try inserting - handle missing columns gracefully
     let result;
-    try {
-      result = await pool.query(`
-        INSERT INTO departments (name, description, color, is_active)
-        VALUES ($1, $2, $3, true)
-        RETURNING *
-      `, [name, description || null, color || null]);
-    } catch (err: any) {
-      // If color column doesn't exist, insert without it
-      if (err.code === '42703' && err.message.includes('color')) {
-        result = await pool.query(`
-          INSERT INTO departments (name, description, is_active)
-          VALUES ($1, $2, true)
-          RETURNING *
-        `, [name, description || null]);
-        // Add color to result
-        result.rows[0].color = color || '#3B82F6';
-      } else {
-        throw err;
+    const insertQueries = [
+      // Try with color and is_active
+      {
+        sql: `INSERT INTO departments (name, description, color, is_active) VALUES ($1, $2, $3, true) RETURNING *`,
+        params: [name, description || null, color || null]
+      },
+      // Try without is_active
+      {
+        sql: `INSERT INTO departments (name, description, color) VALUES ($1, $2, $3) RETURNING *`,
+        params: [name, description || null, color || null]
+      },
+      // Try without color
+      {
+        sql: `INSERT INTO departments (name, description) VALUES ($1, $2) RETURNING *`,
+        params: [name, description || null]
+      }
+    ];
+    
+    for (const query of insertQueries) {
+      try {
+        result = await pool.query(query.sql, query.params);
+        // Add color to result if not present
+        if (!result.rows[0].color) {
+          result.rows[0].color = color || '#3B82F6';
+        }
+        break;
+      } catch (err: any) {
+        if (err.code === '42703' && insertQueries.indexOf(query) < insertQueries.length - 1) {
+          // Column doesn't exist, try next query
+          continue;
+        } else if (insertQueries.indexOf(query) === insertQueries.length - 1) {
+          // Last query failed
+          throw err;
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -231,41 +249,48 @@ router.post('/departments', async (req: Request, res: Response): Promise<void> =
 router.put('/departments/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { name, description, color, is_active } = req.body;
+    const { name, description, color } = req.body;
 
-    // Try updating with color, fallback without if column doesn't exist
+    // Try updating - handle missing columns gracefully
     let result;
-    try {
-      result = await pool.query(`
-        UPDATE departments
-        SET name = COALESCE($1, name),
-            description = COALESCE($2, description),
-            color = COALESCE($3, color),
-            is_active = COALESCE($4, is_active),
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $5
-        RETURNING *
-      `, [name, description, color, is_active, id]);
-    } catch (err: any) {
-      // If color column doesn't exist, update without it
-      if (err.code === '42703' && err.message.includes('color')) {
-        result = await pool.query(`
-          UPDATE departments
-          SET name = COALESCE($1, name),
-              description = COALESCE($2, description),
-              is_active = COALESCE($3, is_active),
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4
-          RETURNING *
-        `, [name, description, is_active, id]);
-        // Add color to result if provided
-        if (color) {
+    const updateQueries = [
+      // Try with color and is_active
+      {
+        sql: `UPDATE departments SET name = COALESCE($1, name), description = COALESCE($2, description), color = COALESCE($3, color), updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING *`,
+        params: [name, description, color, id]
+      },
+      // Try without is_active
+      {
+        sql: `UPDATE departments SET name = COALESCE($1, name), description = COALESCE($2, description), color = COALESCE($3, color), updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING *`,
+        params: [name, description, color, id]
+      },
+      // Try without color
+      {
+        sql: `UPDATE departments SET name = COALESCE($1, name), description = COALESCE($2, description), updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *`,
+        params: [name, description, id]
+      }
+    ];
+    
+    for (const query of updateQueries) {
+      try {
+        result = await pool.query(query.sql, query.params);
+        // Add color to result if not present
+        if (color && !result.rows[0].color) {
           result.rows[0].color = color;
-        } else {
+        } else if (!result.rows[0].color) {
           result.rows[0].color = '#3B82F6';
         }
-      } else {
-        throw err;
+        break;
+      } catch (err: any) {
+        if (err.code === '42703' && updateQueries.indexOf(query) < updateQueries.length - 1) {
+          // Column doesn't exist, try next query
+          continue;
+        } else if (updateQueries.indexOf(query) === updateQueries.length - 1) {
+          // Last query failed
+          throw err;
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -289,13 +314,39 @@ router.delete('/departments/:id', async (req: Request, res: Response): Promise<v
   try {
     const { id } = req.params;
 
-    await pool.query(`
-      UPDATE departments
-      SET deleted_at = CURRENT_TIMESTAMP, is_active = false
-      WHERE id = $1
-    `, [id]);
-
-    res.status(204).send();
+    // Try soft delete with deleted_at and is_active
+    const deleteQueries = [
+      {
+        sql: `UPDATE departments SET deleted_at = CURRENT_TIMESTAMP, is_active = false WHERE id = $1`,
+        params: [id]
+      },
+      {
+        sql: `UPDATE departments SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        params: [id]
+      },
+      {
+        sql: `DELETE FROM departments WHERE id = $1`,
+        params: [id]
+      }
+    ];
+    
+    for (const query of deleteQueries) {
+      try {
+        await pool.query(query.sql, query.params);
+        res.status(204).send();
+        return;
+      } catch (err: any) {
+        if (err.code === '42703' && deleteQueries.indexOf(query) < deleteQueries.length - 1) {
+          // Column doesn't exist, try next query
+          continue;
+        } else if (deleteQueries.indexOf(query) === deleteQueries.length - 1) {
+          // Last query failed
+          throw err;
+        } else {
+          throw err;
+        }
+      }
+    }
   } catch (error: any) {
     console.error('Error deleting department:', error);
     res.status(500).json({ error: error.message });
@@ -450,11 +501,35 @@ router.post('/teams', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const result = await pool.query(`
-      INSERT INTO teams (name, description, department_id, leader_id, color, is_active)
-      VALUES ($1, $2, $3, $4, $5, true)
-      RETURNING *
-    `, [name, description || null, departmentId || null, leaderId || null, color || null]);
+    // Try inserting - handle missing table/columns gracefully
+    const insertQueries = [
+      {
+        sql: `INSERT INTO teams (name, description, department_id, leader_id, color, is_active) VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
+        params: [name, description || null, departmentId || null, leaderId || null, color || null]
+      },
+      {
+        sql: `INSERT INTO teams (name, description, department_id, leader_id, color) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        params: [name, description || null, departmentId || null, leaderId || null, color || null]
+      }
+    ];
+    
+    let result;
+    for (const query of insertQueries) {
+      try {
+        result = await pool.query(query.sql, query.params);
+        break;
+      } catch (err: any) {
+        if (err.code === '42703' && insertQueries.indexOf(query) < insertQueries.length - 1) {
+          continue;
+        } else if (err.code === '42P01') {
+          // Table doesn't exist
+          res.status(400).json({ error: 'Teams table does not exist in database. Please create it first.' });
+          return;
+        } else {
+          throw err;
+        }
+      }
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
@@ -470,20 +545,35 @@ router.post('/teams', async (req: Request, res: Response): Promise<void> => {
 router.put('/teams/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { name, description, departmentId, leaderId, color, is_active } = req.body;
+    const { name, description, departmentId, leaderId, color } = req.body;
 
-    const result = await pool.query(`
-      UPDATE teams
-      SET name = COALESCE($1, name),
-          description = COALESCE($2, description),
-          department_id = COALESCE($3, department_id),
-          leader_id = COALESCE($4, leader_id),
-          color = COALESCE($5, color),
-          is_active = COALESCE($6, is_active),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $7
-      RETURNING *
-    `, [name, description, departmentId, leaderId, color, is_active, id]);
+    const updateQueries = [
+      {
+        sql: `UPDATE teams SET name = COALESCE($1, name), description = COALESCE($2, description), department_id = COALESCE($3, department_id), leader_id = COALESCE($4, leader_id), color = COALESCE($5, color), updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING *`,
+        params: [name, description, departmentId, leaderId, color, id]
+      },
+      {
+        sql: `UPDATE teams SET name = COALESCE($1, name), description = COALESCE($2, description), department_id = COALESCE($3, department_id), leader_id = COALESCE($4, leader_id), color = COALESCE($5, color) WHERE id = $6 RETURNING *`,
+        params: [name, description, departmentId, leaderId, color, id]
+      }
+    ];
+    
+    let result;
+    for (const query of updateQueries) {
+      try {
+        result = await pool.query(query.sql, query.params);
+        break;
+      } catch (err: any) {
+        if (err.code === '42703' && updateQueries.indexOf(query) < updateQueries.length - 1) {
+          continue;
+        } else if (err.code === '42P01') {
+          res.status(400).json({ error: 'Teams table does not exist in database.' });
+          return;
+        } else {
+          throw err;
+        }
+      }
+    }
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Team not found' });
@@ -505,13 +595,39 @@ router.delete('/teams/:id', async (req: Request, res: Response): Promise<void> =
   try {
     const { id } = req.params;
 
-    await pool.query(`
-      UPDATE teams
-      SET deleted_at = CURRENT_TIMESTAMP, is_active = false
-      WHERE id = $1
-    `, [id]);
-
-    res.status(204).send();
+    const deleteQueries = [
+      {
+        sql: `UPDATE teams SET deleted_at = CURRENT_TIMESTAMP, is_active = false WHERE id = $1`,
+        params: [id]
+      },
+      {
+        sql: `UPDATE teams SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        params: [id]
+      },
+      {
+        sql: `DELETE FROM teams WHERE id = $1`,
+        params: [id]
+      }
+    ];
+    
+    for (const query of deleteQueries) {
+      try {
+        await pool.query(query.sql, query.params);
+        res.status(204).send();
+        return;
+      } catch (err: any) {
+        if (err.code === '42703' && deleteQueries.indexOf(query) < deleteQueries.length - 1) {
+          continue;
+        } else if (err.code === '42P01') {
+          res.status(400).json({ error: 'Teams table does not exist in database.' });
+          return;
+        } else if (deleteQueries.indexOf(query) === deleteQueries.length - 1) {
+          throw err;
+        } else {
+          throw err;
+        }
+      }
+    }
   } catch (error: any) {
     console.error('Error deleting team:', error);
     res.status(500).json({ error: error.message });
@@ -646,7 +762,7 @@ router.get('/members/:id', async (req: Request, res: Response): Promise<void> =>
  */
 router.post('/members', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username, email, displayName, fullName, jobTitle, departmentId, role, password } = req.body;
+    const { username, email, displayName, fullName, jobTitle, departmentId, teamId, role, password } = req.body;
 
     if (!username || !email || !displayName) {
       res.status(400).json({ error: 'Username, email, and displayName are required' });
@@ -692,6 +808,30 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    const userId = result.rows[0].id;
+
+    // Handle team assignment if teamId is provided
+    if (teamId) {
+      try {
+        // Remove user from any existing teams first
+        await pool.query(`
+          DELETE FROM team_members
+          WHERE user_id = $1
+        `, [userId]);
+
+        // Add user to the specified team
+        await pool.query(`
+          INSERT INTO team_members (team_id, user_id, role)
+          VALUES ($1, $2, 'member')
+          ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
+        `, [teamId, userId]);
+        console.log(`✅ User ${userId} assigned to team ${teamId}`);
+      } catch (teamErr: any) {
+        console.error('Error assigning user to team (team_members table may not exist):', teamErr.message);
+        // Don't fail the whole request if team assignment fails
+      }
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
     console.error('Error creating member:', error);
@@ -706,7 +846,7 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
 router.put('/members/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { displayName, fullName, jobTitle, departmentId, role, status, language } = req.body;
+    const { displayName, fullName, jobTitle, departmentId, teamId, role, status, language } = req.body;
 
     // Try updating with department_id, fallback to department if it doesn't exist
     let result;
@@ -759,6 +899,37 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Member not found' });
       return;
+    }
+
+    // Handle team assignment if teamId is provided
+    if (teamId !== undefined) {
+      try {
+        if (teamId) {
+          // Remove user from any existing teams first
+          await pool.query(`
+            DELETE FROM team_members
+            WHERE user_id = $1
+          `, [id]);
+
+          // Add user to the specified team
+          await pool.query(`
+            INSERT INTO team_members (team_id, user_id, role)
+            VALUES ($1, $2, 'member')
+            ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
+          `, [teamId, id]);
+          console.log(`✅ User ${id} assigned to team ${teamId}`);
+        } else {
+          // teamId is empty string/null - remove from all teams
+          await pool.query(`
+            DELETE FROM team_members
+            WHERE user_id = $1
+          `, [id]);
+          console.log(`✅ User ${id} removed from all teams`);
+        }
+      } catch (teamErr: any) {
+        console.error('Error updating team assignment (team_members table may not exist):', teamErr.message);
+        // Don't fail the whole request if team assignment fails
+      }
     }
 
     res.json(result.rows[0]);

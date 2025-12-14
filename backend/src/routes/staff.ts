@@ -735,7 +735,7 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
             LIMIT 1
           `, [member.id]);
           
-          if (teamResult.rows[0]) {
+          if (teamResult.rows[0] && teamResult.rows[0].team_id) {
             teamId = String(teamResult.rows[0].team_id);
           }
         } catch (err: any) {
@@ -890,7 +890,14 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
     const { id } = req.params;
     const { displayName, fullName, jobTitle, departmentId, teamId, role, status, language } = req.body;
     
-    console.log(`📝 Updating member ${id}:`, { displayName, teamId, departmentId });
+    console.log(`📝 Updating member ${id}:`, { 
+      displayName, 
+      teamId, 
+      teamIdType: typeof teamId,
+      teamIdLength: teamId ? teamId.length : 0,
+      departmentId,
+      fullBody: req.body 
+    });
 
     // Try updating with department_id, fallback to department if it doesn't exist
     let result;
@@ -947,29 +954,52 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
 
     // Handle team assignment if teamId is provided
     // teamId can be: undefined (not provided), empty string "" (no team), or UUID (team selected)
+    console.log(`🔍 Processing team assignment for user ${id}:`, { 
+      teamId, 
+      teamIdType: typeof teamId, 
+      teamIdIsUndefined: teamId === undefined,
+      teamIdIsNull: teamId === null,
+      teamIdIsEmpty: teamId === '',
+      teamIdTruthy: !!teamId
+    });
+    
     if (teamId !== undefined && teamId !== null) {
       try {
         // Remove user from any existing teams first
-        await pool.query(`
+        console.log(`🗑️  Removing user ${id} from all existing teams...`);
+        const deleteResult = await pool.query(`
           DELETE FROM team_members
           WHERE user_id = $1
         `, [id]);
+        console.log(`   Deleted ${deleteResult.rowCount} existing team assignments`);
 
         if (teamId && teamId.trim() !== '') {
           // Add user to the specified team
+          console.log(`➕ Adding user ${id} to team ${teamId}...`);
           const insertResult = await pool.query(`
             INSERT INTO team_members (team_id, user_id, role)
             VALUES ($1, $2, 'member')
             ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
             RETURNING *
           `, [teamId, id]);
-          console.log(`✅ User ${id} assigned to team ${teamId}`, insertResult.rows[0]);
+          console.log(`✅ User ${id} assigned to team ${teamId}:`, insertResult.rows[0]);
+          
+          // Verify the assignment was saved
+          const verifyResult = await pool.query(`
+            SELECT * FROM team_members WHERE user_id = $1 AND team_id = $2
+          `, [id, teamId]);
+          if (verifyResult.rows.length > 0) {
+            console.log(`✅ Verified: Assignment saved successfully`);
+          } else {
+            console.error(`❌ ERROR: Assignment not found after insert!`);
+          }
         } else {
           // teamId is empty string - remove from all teams (already deleted above)
-          console.log(`✅ User ${id} removed from all teams`);
+          console.log(`✅ User ${id} removed from all teams (teamId was empty string)`);
         }
       } catch (teamErr: any) {
         console.error('❌ Error updating team assignment:', teamErr.message);
+        console.error('Error code:', teamErr.code);
         console.error('Error details:', teamErr);
         // Don't fail the whole request if team assignment fails, but log it
       }
@@ -977,7 +1007,36 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
       console.log(`ℹ️  teamId not provided (undefined/null) for user ${id}, skipping team assignment`);
     }
 
-    res.json(result.rows[0]);
+    // Get the updated team assignment to include in response
+    let responseTeamId = null;
+    try {
+      const teamResult = await pool.query(`
+        SELECT team_id
+        FROM team_members
+        WHERE user_id = $1
+        LIMIT 1
+      `, [id]);
+      if (teamResult.rows[0] && teamResult.rows[0].team_id) {
+        responseTeamId = String(teamResult.rows[0].team_id);
+        console.log(`✅ Found teamId in response query: ${responseTeamId}`);
+      } else {
+        console.log(`ℹ️  No teamId found for user ${id} in team_members table`);
+      }
+    } catch (err: any) {
+      console.log(`⚠️  Error fetching teamId for response:`, err.message);
+    }
+    
+    const response = {
+      ...result.rows[0],
+      teamId: responseTeamId
+    };
+    
+    console.log(`📤 Sending response for user ${id}:`, { 
+      displayName: response.display_name || response.displayName,
+      teamId: response.teamId 
+    });
+    
+    res.json(response);
   } catch (error: any) {
     console.error('Error updating member:', error);
     res.status(500).json({ error: error.message });

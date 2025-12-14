@@ -818,46 +818,52 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
     const userPassword = password || 'TempPassword123!';
 
     // Hash password using bcryptjs
-    const bcrypt = require('bcryptjs');
-    const passwordHash = await bcrypt.hash(userPassword, 10);
+    let passwordHash;
+    try {
+      const bcrypt = require('bcryptjs');
+      passwordHash = await bcrypt.hash(userPassword, 10);
+    } catch (bcryptErr: any) {
+      console.error('Error hashing password:', bcryptErr.message);
+      console.error('bcryptjs module error:', bcryptErr);
+      res.status(500).json({ error: `Password hashing failed: ${bcryptErr.message}. Make sure bcryptjs is installed.` });
+      return;
+    }
 
-    // Try inserting with department_id, fallback to department if it doesn't exist
+    // Get department name from departmentId if provided (users table uses department VARCHAR, not department_id)
+    let departmentName = null;
+    if (departmentId) {
+      try {
+        const deptResult = await pool.query(`SELECT name FROM departments WHERE id::text = $1 OR id = $1`, [departmentId]);
+        departmentName = deptResult.rows[0]?.name || null;
+        console.log(`📋 Department lookup: departmentId=${departmentId} -> departmentName=${departmentName}`);
+      } catch (deptErr: any) {
+        console.error('Error fetching department name:', deptErr.message);
+        // Continue without department name if lookup fails
+      }
+    }
+
+    // Insert user with department column (VARCHAR), not department_id
     let result;
     try {
       result = await pool.query(`
-        INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department_id, role)
+        INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department, role)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, username, email, display_name as "displayName", role, created_at as "createdAt"
-      `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentId || null, role || 'member']);
+      `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentName, role || 'member']);
+      console.log(`✅ User created successfully: ${result.rows[0].id}`);
     } catch (err: any) {
-      // If department_id doesn't exist, use department column instead
-      if (err.code === '42703' && err.message.includes('department_id')) {
-        // Get department name from departmentId if provided
-        let departmentName = null;
-        if (departmentId) {
-          try {
-            const deptResult = await pool.query(`SELECT name FROM departments WHERE id::text = $1`, [departmentId]);
-            departmentName = deptResult.rows[0]?.name || null;
-          } catch (deptErr: any) {
-            console.error('Error fetching department name:', deptErr.message);
-          }
-        }
-        
-        result = await pool.query(`
-          INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department, role)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          RETURNING id, username, email, display_name as "displayName", role, created_at as "createdAt"
-        `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentName, role || 'member']);
-      } else {
-        throw err;
-      }
+      console.error('Error inserting user:', err.message);
+      console.error('Error code:', err.code);
+      console.error('Error detail:', err.detail);
+      throw err;
     }
 
     const userId = result.rows[0].id;
 
     // Handle team assignment if teamId is provided
-    if (teamId) {
+    if (teamId && teamId.trim() !== '') {
       try {
+        console.log(`🔗 Assigning user ${userId} to team ${teamId}...`);
         // Remove user from any existing teams first
         await pool.query(`
           DELETE FROM team_members
@@ -865,16 +871,21 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
         `, [userId]);
 
         // Add user to the specified team
-        await pool.query(`
+        const teamInsertResult = await pool.query(`
           INSERT INTO team_members (team_id, user_id, role)
           VALUES ($1, $2, 'member')
           ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
+          RETURNING *
         `, [teamId, userId]);
-        console.log(`✅ User ${userId} assigned to team ${teamId}`);
+        console.log(`✅ User ${userId} assigned to team ${teamId}:`, teamInsertResult.rows[0]);
       } catch (teamErr: any) {
-        console.error('Error assigning user to team (team_members table may not exist):', teamErr.message);
-        // Don't fail the whole request if team assignment fails
+        console.error('❌ Error assigning user to team:', teamErr.message);
+        console.error('Error code:', teamErr.code);
+        console.error('Error detail:', teamErr.detail);
+        // Don't fail the whole request if team assignment fails, but log it
       }
+    } else {
+      console.log(`ℹ️  No teamId provided for user ${userId}, skipping team assignment`);
     }
 
     res.status(201).json(result.rows[0]);

@@ -729,7 +729,7 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
         let teamId = null;
         try {
           const teamResult = await pool.query(`
-            SELECT team_id
+            SELECT team_id, user_id, role
             FROM team_members
             WHERE user_id = $1
             LIMIT 1
@@ -737,9 +737,12 @@ router.get('/members', async (req: Request, res: Response): Promise<void> => {
           
           if (teamResult.rows[0] && teamResult.rows[0].team_id) {
             teamId = String(teamResult.rows[0].team_id);
+          } else if (teamResult.rows.length > 0) {
+            console.log(`⚠️  Team query returned row but no team_id for user ${member.id}:`, teamResult.rows[0]);
           }
         } catch (err: any) {
           // team_members table may not exist, that's okay
+          console.log(`⚠️  Error querying team_members for user ${member.id}:`, err.message);
           teamId = null;
         }
 
@@ -976,22 +979,34 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
         if (teamId && teamId.trim() !== '') {
           // Add user to the specified team
           console.log(`➕ Adding user ${id} to team ${teamId}...`);
-          const insertResult = await pool.query(`
-            INSERT INTO team_members (team_id, user_id, role)
-            VALUES ($1, $2, 'member')
-            ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
-            RETURNING *
-          `, [teamId, id]);
-          console.log(`✅ User ${id} assigned to team ${teamId}:`, insertResult.rows[0]);
+          console.log(`   User ID type: ${typeof id}, value: ${id}`);
+          console.log(`   Team ID type: ${typeof teamId}, value: ${teamId}`);
           
-          // Verify the assignment was saved
-          const verifyResult = await pool.query(`
-            SELECT * FROM team_members WHERE user_id = $1 AND team_id = $2
-          `, [id, teamId]);
-          if (verifyResult.rows.length > 0) {
-            console.log(`✅ Verified: Assignment saved successfully`);
-          } else {
-            console.error(`❌ ERROR: Assignment not found after insert!`);
+          try {
+            const insertResult = await pool.query(`
+              INSERT INTO team_members (team_id, user_id, role)
+              VALUES ($1, $2, 'member')
+              ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'member'
+              RETURNING *
+            `, [teamId, id]);
+            console.log(`✅ User ${id} assigned to team ${teamId}:`, insertResult.rows[0]);
+            
+            // Verify the assignment was saved immediately
+            const verifyResult = await pool.query(`
+              SELECT * FROM team_members WHERE user_id = $1 AND team_id = $2
+            `, [id, teamId]);
+            if (verifyResult.rows.length > 0) {
+              console.log(`✅ Verified: Assignment saved successfully`, verifyResult.rows[0]);
+            } else {
+              console.error(`❌ ERROR: Assignment not found after insert!`);
+              console.error(`   Searched for user_id=${id}, team_id=${teamId}`);
+            }
+          } catch (insertErr: any) {
+            console.error(`❌ ERROR inserting team assignment:`, insertErr.message);
+            console.error(`   Error code:`, insertErr.code);
+            console.error(`   Error detail:`, insertErr.detail);
+            console.error(`   Full error:`, insertErr);
+            throw insertErr; // Re-throw to see the error
           }
         } else {
           // teamId is empty string - remove from all teams (already deleted above)
@@ -1000,8 +1015,11 @@ router.put('/members/:id', async (req: Request, res: Response): Promise<void> =>
       } catch (teamErr: any) {
         console.error('❌ Error updating team assignment:', teamErr.message);
         console.error('Error code:', teamErr.code);
-        console.error('Error details:', teamErr);
-        // Don't fail the whole request if team assignment fails, but log it
+        console.error('Error detail:', teamErr.detail);
+        console.error('Error hint:', teamErr.hint);
+        console.error('Full error:', teamErr);
+        // Re-throw to see the error - comment out if you want to continue anyway
+        // throw teamErr;
       }
     } else {
       console.log(`ℹ️  teamId not provided (undefined/null) for user ${id}, skipping team assignment`);

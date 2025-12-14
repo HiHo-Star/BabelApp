@@ -857,14 +857,18 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Generate UUID for user ID (database may not have DEFAULT gen_random_uuid())
+    const { randomUUID } = require('crypto');
+    const userId = randomUUID();
+    
     // Insert user with department column (VARCHAR), not department_id
     let result;
     try {
       result = await pool.query(`
-        INSERT INTO users (username, email, password_hash, display_name, full_name, job_title, department, role)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO users (id, username, email, password_hash, display_name, full_name, job_title, department, role)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id, username, email, display_name as "displayName", role, created_at as "createdAt"
-      `, [username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentName, role || 'member']);
+      `, [userId, username, email, passwordHash, displayName, fullName || null, jobTitle || null, departmentName, role || 'member']);
       console.log(`✅ User created successfully: ${result.rows[0].id}`);
     } catch (err: any) {
       console.error('Error inserting user:', err.message);
@@ -873,7 +877,7 @@ router.post('/members', async (req: Request, res: Response): Promise<void> => {
       throw err;
     }
 
-    const userId = result.rows[0].id;
+    // userId is already set above from randomUUID()
 
     // Handle team assignment if teamId is provided
     if (teamId && teamId.trim() !== '') {

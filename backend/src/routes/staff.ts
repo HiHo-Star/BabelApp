@@ -101,6 +101,11 @@ router.get('/departments', async (req: Request, res: Response): Promise<void> =>
       }
     }
     
+    if (!result) {
+      res.status(500).json({ error: 'Failed to fetch departments' });
+      return;
+    }
+    
     // Ensure all expected fields exist for all departments
     result.rows = result.rows.map((dept: any) => ({
       ...dept,
@@ -235,6 +240,11 @@ router.post('/departments', async (req: Request, res: Response): Promise<void> =
       }
     }
 
+    if (!result || result.rows.length === 0) {
+      res.status(500).json({ error: 'Failed to create department' });
+      return;
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
     console.error('Error creating department:', error);
@@ -294,7 +304,7 @@ router.put('/departments/:id', async (req: Request, res: Response): Promise<void
       }
     }
 
-    if (result.rows.length === 0) {
+    if (!result || result.rows.length === 0) {
       res.status(404).json({ error: 'Department not found' });
       return;
     }
@@ -573,6 +583,11 @@ router.post('/teams', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    if (!result || result.rows.length === 0) {
+      res.status(500).json({ error: 'Failed to create team' });
+      return;
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
     console.error('Error creating team:', error);
@@ -617,7 +632,7 @@ router.put('/teams/:id', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    if (result.rows.length === 0) {
+    if (!result || result.rows.length === 0) {
       res.status(404).json({ error: 'Team not found' });
       return;
     }

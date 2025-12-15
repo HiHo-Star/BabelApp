@@ -211,8 +211,27 @@ io.on('connection', (socket) => {
     const messageId = `${Date.now()}-${socket.id}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Get sender language from query or default to 'en'
-    const senderLanguage = (socket.handshake.query.userLanguage as string) || 'en';
-    console.log('Sender language:', senderLanguage);
+    let senderLanguage = (socket.handshake.query.userLanguage as string) || 'en';
+    
+    // Detect language from message content for all messages (not just BabelBot)
+    const contentToDetect = data.transcription && data.transcription.trim() !== ''
+      ? data.transcription
+      : data.content || '';
+    const detectedLanguage = detectLanguageFromText(contentToDetect);
+    
+    // Use detected language if it's different from socket language and not English
+    // If detected is Hebrew/Arabic/etc and socket says English, trust the detection
+    if (detectedLanguage !== 'en' && senderLanguage === 'en') {
+      senderLanguage = detectedLanguage;
+      console.log('Language auto-detected from content:', {
+        detected: detectedLanguage,
+        socketLanguage: socket.handshake.query.userLanguage,
+        usingLanguage: senderLanguage,
+        messagePreview: contentToDetect.substring(0, 50)
+      });
+    } else {
+      console.log('Sender language:', senderLanguage, '(detected:', detectedLanguage + ')');
+    }
 
     // Check if this is a BabelBot chat
     const isBabelBotChat = data.chatId && data.chatId.startsWith('babelbot-');
@@ -340,8 +359,19 @@ io.on('connection', (socket) => {
 
     // Translate message to languages used by active users
     console.log('=== TRANSLATING MESSAGE ===');
-    const targetLanguages = await getTargetLanguages();
-    console.log('Target languages (from active users):', targetLanguages);
+    let targetLanguages = await getTargetLanguages();
+    
+    // Always ensure English is included for translation (unless it's the original language)
+    if (senderLanguage !== 'en' && !targetLanguages.includes('en')) {
+      targetLanguages.push('en');
+    }
+    
+    // Always ensure the sender's language is in the list (for the original text)
+    if (!targetLanguages.includes(senderLanguage)) {
+      targetLanguages.push(senderLanguage);
+    }
+    
+    console.log('Target languages (from active users + ensured):', targetLanguages);
 
     // Determine what text to translate (use transcription for audio messages if available)
     const textToTranslate = data.transcription && data.transcription.trim() !== ''

@@ -55,6 +55,40 @@ let cachedTargetLanguages: string[] = ['en']; // Default to English
 let lastLanguageCacheUpdate = 0;
 const LANGUAGE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Function to detect language from text content
+function detectLanguageFromText(text: string): string {
+  if (!text || text.trim().length === 0) {
+    return 'en'; // Default to English for empty text
+  }
+
+  // Check for Hebrew characters (Unicode range U+0590 to U+05FF)
+  const hebrewPattern = /[\u0590-\u05FF]/;
+  if (hebrewPattern.test(text)) {
+    return 'he';
+  }
+
+  // Check for Arabic characters (Unicode range U+0600 to U+06FF)
+  const arabicPattern = /[\u0600-\u06FF]/;
+  if (arabicPattern.test(text)) {
+    return 'ar';
+  }
+
+  // Check for Chinese characters (Unicode range U+4E00 to U+9FFF)
+  const chinesePattern = /[\u4E00-\u9FFF]/;
+  if (chinesePattern.test(text)) {
+    return 'zh';
+  }
+
+  // Check for Cyrillic characters (Unicode range U+0400 to U+04FF)
+  const cyrillicPattern = /[\u0400-\u04FF]/;
+  if (cyrillicPattern.test(text)) {
+    return 'ru';
+  }
+
+  // Default to English if no specific script detected
+  return 'en';
+}
+
 // Function to get target languages with caching
 async function getTargetLanguages(): Promise<string[]> {
   const now = Date.now();
@@ -188,6 +222,24 @@ io.on('connection', (socket) => {
       console.log('Chat ID:', data.chatId);
       console.log('User message:', data.content);
       
+      // Detect language from message content for BabelBot
+      const contentToDetect = data.transcription && data.transcription.trim() !== ''
+        ? data.transcription
+        : data.content || '';
+      const detectedLanguage = detectLanguageFromText(contentToDetect);
+      
+      // Use detected language if different from socket language, otherwise use socket language
+      const babelBotLanguage = detectedLanguage !== 'en' || senderLanguage === 'en' 
+        ? detectedLanguage 
+        : senderLanguage;
+      
+      console.log('Language detection:', {
+        socketLanguage: senderLanguage,
+        detectedLanguage: detectedLanguage,
+        usingLanguage: babelBotLanguage,
+        messageContent: contentToDetect.substring(0, 50)
+      });
+      
       // Save user message first
       const userId = socket.handshake.query.userId as string || 'unknown';
       const userMessageData: any = {
@@ -198,7 +250,7 @@ io.on('connection', (socket) => {
           id: userId,
           displayName: userId
         },
-        originalLanguage: senderLanguage,
+        originalLanguage: babelBotLanguage,
         translations: {} as { [key: string]: string }
       };
 
@@ -213,7 +265,7 @@ io.on('connection', (socket) => {
           sender_id: userId,
           content: contentToSave,
           content_type: data.contentType || 'text',
-          original_language: senderLanguage,
+          original_language: babelBotLanguage,
           created_at: messageTimestamp
         });
 
@@ -233,7 +285,7 @@ io.on('connection', (socket) => {
           data.content || data.transcription || '',
           userId,
           data.chatId,
-          { language: senderLanguage }
+          { language: babelBotLanguage }
         );
 
         console.log('=== BABELBOT RESPONSE RECEIVED ===');
@@ -253,7 +305,7 @@ io.on('connection', (socket) => {
             id: 'babelbot',
             displayName: 'Babel Bot'
           },
-          originalLanguage: senderLanguage,
+          originalLanguage: babelBotLanguage,
           translations: {} as { [key: string]: string }
         };
 

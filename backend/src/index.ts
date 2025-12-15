@@ -240,12 +240,17 @@ io.on('connection', (socket) => {
         messageContent: contentToDetect.substring(0, 50)
       });
       
-      // Save user message first
+      // Skip database saves for BabelBot chats - just broadcast immediately for faster response
       const userId = socket.handshake.query.userId as string || 'unknown';
+      const contentToSave = data.transcription && data.transcription.trim() !== ''
+        ? data.transcription
+        : data.content;
+      
       const userMessageData: any = {
         ...data,
         id: messageId,
         createdAt: messageTimestamp,
+        content: contentToSave,
         sender: {
           id: userId,
           displayName: userId
@@ -254,30 +259,10 @@ io.on('connection', (socket) => {
         translations: {} as { [key: string]: string }
       };
 
-      // Save user message to database
-      try {
-        const contentToSave = data.transcription && data.transcription.trim() !== ''
-          ? data.transcription
-          : data.content;
-
-        const savedUserMessage = await createMessage({
-          chat_id: data.chatId,
-          sender_id: userId,
-          content: contentToSave,
-          content_type: data.contentType || 'text',
-          original_language: babelBotLanguage,
-          created_at: messageTimestamp
-        });
-
-        userMessageData.id = savedUserMessage.id;
-        userMessageData.createdAt = savedUserMessage.created_at;
-
-        // Broadcast user message
-        io.to(data.chatId).emit('new-message', userMessageData);
-        io.emit('chat-message-received', userMessageData);
-      } catch (dbError) {
-        console.error('❌ Failed to save user message to database:', dbError);
-      }
+      // Broadcast user message immediately (skip database for BabelBot chats)
+      console.log('📤 Broadcasting user message to BabelBot chat (skipping database save)');
+      io.to(data.chatId).emit('new-message', userMessageData);
+      io.emit('chat-message-received', userMessageData);
 
       // Forward to BabelBot service and get response
       try {
@@ -309,30 +294,11 @@ io.on('connection', (socket) => {
           translations: {} as { [key: string]: string }
         };
 
-        // Save bot response to database
-        try {
-          const savedBotMessage = await createMessage({
-            chat_id: data.chatId,
-            sender_id: 'babelbot',
-            content: botResponse.message,
-            content_type: 'text',
-            original_language: senderLanguage,
-            created_at: botMessageTimestamp
-          });
-
-          botMessageData.id = savedBotMessage.id;
-          botMessageData.createdAt = savedBotMessage.created_at;
-
-          // Broadcast bot response
-          io.to(data.chatId).emit('new-message', botMessageData);
-          io.emit('chat-message-received', botMessageData);
-          console.log('=== BABELBOT RESPONSE SENT ===');
-        } catch (dbError) {
-          console.error('❌ Failed to save bot message to database:', dbError);
-          // Still broadcast even if database save fails
-          io.to(data.chatId).emit('new-message', botMessageData);
-          io.emit('chat-message-received', botMessageData);
-        }
+        // Skip database save for BabelBot chats - broadcast immediately for faster response
+        console.log('📤 Broadcasting BabelBot response (skipping database save)');
+        io.to(data.chatId).emit('new-message', botMessageData);
+        io.emit('chat-message-received', botMessageData);
+        console.log('=== BABELBOT RESPONSE SENT ===');
       } catch (botError: any) {
         console.error('❌ Failed to get BabelBot response:', botError);
         

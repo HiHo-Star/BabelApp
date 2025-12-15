@@ -546,6 +546,9 @@ router.get('/data', async (req: Request, res: Response): Promise<void> => {
  * This is called by Android app, which then forwards to TaskManagement-agent
  */
 router.post('/process', async (req: Request, res: Response): Promise<void> => {
+  const startTime = Date.now();
+  console.log(`[TaskManagement Route] Processing request at ${new Date().toISOString()}`);
+  
   try {
     const { userId, text, language, context } = req.body;
 
@@ -557,7 +560,16 @@ router.post('/process', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Set longer timeouts for this route
+    req.setTimeout(60000);
+    res.setTimeout(60000);
+
+    // Send keep-alive headers to prevent proxy timeouts
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Keep-Alive', 'timeout=60');
+
     // Forward to TaskManagement-agent service
+    console.log(`[TaskManagement Route] Calling service for user ${userId}`);
     const result = await taskManagementService.process(
       userId,
       text,
@@ -565,12 +577,41 @@ router.post('/process', async (req: Request, res: Response): Promise<void> => {
       context
     );
 
+    const elapsedTime = Date.now() - startTime;
+    console.log(`[TaskManagement Route] Service responded in ${elapsedTime}ms`);
+
+    // Check if client is still connected before sending response
+    if (res.headersSent) {
+      console.warn('[TaskManagement Route] Response already sent, skipping');
+      return;
+    }
+
+    if (req.socket.destroyed) {
+      console.warn('[TaskManagement Route] Client disconnected, cannot send response');
+      return;
+    }
+
+    console.log(`[TaskManagement Route] Sending response to client`);
     res.json({
       success: true,
       ...result
     });
+    console.log(`[TaskManagement Route] Response sent successfully`);
   } catch (error: any) {
-    console.error('Error processing TaskManagement request:', error);
+    const elapsedTime = Date.now() - startTime;
+    console.error(`[TaskManagement Route] Error after ${elapsedTime}ms:`, error);
+    
+    // Check if client is still connected before sending error response
+    if (res.headersSent) {
+      console.warn('[TaskManagement Route] Response already sent, cannot send error');
+      return;
+    }
+
+    if (req.socket.destroyed) {
+      console.warn('[TaskManagement Route] Client disconnected, cannot send error response');
+      return;
+    }
+
     res.status(500).json({
       success: false,
       error: error.message
